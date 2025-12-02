@@ -72,6 +72,7 @@ def check_updates_callback(props, prop, *args, **kwargs):
     version_check_prop = obs.obs_properties_get(props, "version_info")
     
     if (obs.obs_property_visible(version_check_prop)):
+        obs.obs_property_set_visible(version_check_prop, False)
         return True
     
     if check_updates(CONST.VERSION):
