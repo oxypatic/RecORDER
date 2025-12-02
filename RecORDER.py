@@ -23,6 +23,12 @@ SOURCE_NAMES = ["Game Capture", "Window Capture"]
 class CONST:
     VERSION = "2.1.1"
     PYTHON_VERSION = sys.version_info
+    TIME_TO_WAIT = 0.5
+
+class SOURCE_TYPES:
+    GAME_CAPTURE = "game_capture"
+    WINDOW_CAPTURE = "window_capture"
+    DISPLAY_CAPTURE = "monitor_capture"
 
 
 # Version check
@@ -696,6 +702,16 @@ def script_unload():
 
     # Clear signal for automatic splitting function
     file_changed_sh(recreate=False)
+    
+
+def has_video_output(source) -> bool:
+    """Check if source has video output capability"""
+    flags = obs.obs_source_get_output_flags(source)
+    return (flags & obs.OBS_SOURCE_VIDEO) != 0
+
+def is_display_capture(source) -> bool:
+    """Check if source is a Display Capture"""
+    return obs.obs_source_get_id(source) == SOURCE_TYPES.DISPLAY_CAPTURE
     
     
 def script_properties():
