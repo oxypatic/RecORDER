@@ -92,7 +92,6 @@ class GlobalVariables:
     def __init__(self):
         # [PROPERTIES]
         self._add_game_title_to_recording_name = None
-        self._time_to_wait = 0.5
 
         # [Related to RECORDING]
         self._is_recording = False
@@ -114,13 +113,6 @@ class GlobalVariables:
     @add_game_title_to_recording_name.setter
     def add_game_title_to_recording_name(self, value: bool):
         self._add_game_title_to_recording_name = value
-    
-    @property
-    def time_to_wait(self) -> float:
-        return self._time_to_wait
-    
-    @time_to_wait.setter
-    def time_to_wait(self, value: float):
         self._time_to_wait = value
 
     # ---
@@ -308,7 +300,7 @@ async def remember_and_move(old_path: str, new_path: str) -> None:
         log(f"(Asyncio) File does not exist: {old_path}")
         return
     
-    time_to_wait = globalVariables.time_to_wait
+    time_to_wait = CONST.TIME_TO_WAIT
 
     new_dir = None
     max_attempts = 4
