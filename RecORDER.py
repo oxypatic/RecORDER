@@ -4,6 +4,7 @@ import threading
 import datetime as dt
 import traceback
 import json
+from typing import Awaitable, Optional
 from urllib.request import urlopen
 from os import makedirs
 from os import path as os_path
@@ -35,6 +36,166 @@ class SOURCE_TYPES:
 
 if CONST.PYTHON_VERSION < (3, 11):
     print("Python version < 3.11, correct behaviour is not guaranteed!")
+
+
+# NEW CODE
+
+## DATA
+class RecORDERProperties:
+    def __init__(self):
+        self.default_game_title: str = ""                   #TODO: Grab name from obs_data
+        self.source_names: list[str] = list()  
+        self.game_title_prefix: bool = False                #TODO: Grab the bool from obs_data
+        self.enable_replay_organization: bool = True        #TODO: Grab the bool from obs_data
+        self.enable_screenshot_organization: bool = True    #TODO: Grab the bool from obs_data
+    
+class HookState:
+    def __init__(self):
+        self.source_uuid: Optional[str] = None              #TODO: Init of these parameters probably required
+        self.game_title: Optional[str] = None
+        self.hooked_signal_handler: Optional[object] = None
+        
+    def isSourceDiscovered(self) -> bool:
+        pass
+    
+    def isWindowHooked(self) -> bool:
+        pass
+    
+    def reset(self) -> None:
+        pass
+    
+class RecordingState:
+    def __init__(self):
+        self.last_file_path: Optional[str] = None
+        self.file_changed_signal_handler: Optional[object] = None
+        
+    def reset(self) -> None:
+        pass
+    
+class ReplayState:
+    def __init__(self):
+        self.last_file_path: Optional[str]
+        
+    def reset(self) -> None:
+        pass
+    
+## HANDLERS
+
+class HookedHandler:
+    def __init__(self, properties: RecORDERProperties, state: HookState):
+        self.properties: RecORDERProperties = properties
+        self.state: HookState = state
+        
+    def discoverAndConnect(self) -> bool:
+        pass
+    
+    def disconnect(self) -> None:
+        pass
+    
+    def __searchScene(scene_items: list) -> Optional[object]:
+        pass
+    
+    def __establishHookConnection(source: object) -> None:
+        pass
+    
+    def __onWindowHooked(calldata: any) -> None:
+        pass
+    
+    def __sanitize_title(title: str) -> str:
+        pass
+
+class TitleResolver:
+    def __init__(self, state: HookState):
+        self.state: HookState = state
+        
+    def resolveCurrentTitle(self) -> str:
+        pass
+    
+    def getCurrentTitleOrDefault(self) -> str:
+        pass
+    
+    def __queryHookStatus(self) -> Optional[object]:
+        pass
+    
+    def __sanitizeTitle(self, title: str) -> str:
+        pass
+
+class MediaFileOrganizer:
+    def __init__(self, title_resolver: TitleResolver):
+        self.title_resolver: TitleResolver = title_resolver
+        
+    def processRecording(self, file_path: str) -> None:
+        pass
+    
+    def processReplay(self, file_path: str) -> None:
+        pass
+    
+    def processScreenshot(self, file_path: str) -> None:
+        pass
+    
+    def __organizeFileAsync(self, file_path: str, game_title: str, media_type: str) -> None:
+        pass
+    
+    def __moveFileWorker(self, file_path: str, game_title: str, media_type: str) -> None:
+        pass
+    
+    def __calculateNewPath(self, file_path: str, game_title: str, media_type: str) -> None:
+        pass
+    
+    def __move(self, path: str, target_path: str) -> Awaitable:
+        pass
+
+class RecordingManager:
+    def __init__(self, state: RecordingState, organizer: MediaFileOrganizer):
+        self.state: RecordingState = state
+        self.organizer: MediaFileOrganizer = organizer
+        
+    def start() -> None:
+        pass
+    
+    def stop() -> None:
+        pass
+    
+    def __setup_file_change_monitoring() -> None:
+        pass
+    
+    def __teardown_file_change_monitoring() -> None:
+        pass
+    
+    def __on_file_change(calldata: any) -> None:
+        pass
+
+class ReplayManager:
+    def __init__(self, state: ReplayState, organizer: MediaFileOrganizer):
+        self.state: ReplayState = state
+        self.organizer: MediaFileOrganizer = organizer
+        
+    def start() -> None:
+        pass
+    
+    def stop() -> None:
+        pass
+    
+    def process_saved_replay() -> None:
+        pass
+
+## CORE CLASS
+
+class RecORDER:
+    def __init__(self):
+        self.__properties: RecORDERProperties
+        self.__state: HookState
+        self.__recording_state: RecordingState
+        self.__replay_state: ReplayState
+        self.hooked_handler: HookedHandler
+        self.title_resolver: TitleResolver
+        self.organizer: MediaFileOrganizer
+        self.recording_manager: RecordingManager
+        self.replay_manager: ReplayManager
+        self.event_handlers = dict()
+
+
+# END - NEW CODE
 
 
 # Values supporting smooth working and fewer calls
