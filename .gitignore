@@ -162,3 +162,4 @@ cython_debug/
 *.sha256
 /.idea
 /releases
+pseudocode RecORDER re-write.py
