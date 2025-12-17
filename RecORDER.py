@@ -5,13 +5,13 @@ import obspython as obs  # type: ignore
 # Author: oxypatic! (61553947+padiix@users.noreply.github.com)
 
 
-class CONST:
+class BASE_CONSTANTS:
     VERSION = "3.0"
     PYTHON_VERSION = sys.version_info
     TIME_TO_WAIT = 0.5
 
 
-class OBS_NAMES:
+class OBS_EVENT_NAMES:
     DEFAULT_NOT_CAPTURED_NAME = "Unknown Game"
     HOOKED_SIGNAL_NAME = "hooked"
     TITLE_CALLDATA_NAME = "title"
@@ -19,19 +19,19 @@ class OBS_NAMES:
     FILE_CHANGED_SIGNAL_NAME = "file_changed"
 
 
-class MEDIAFILE_TYPES:
+class SUPPORTED_MEDIAFILE_TYPES:
     RECORDING = "recording"
     REPLAY = "replay"
     SCREENSHOT = "screenshot"
 
 
-class SOURCE_TYPES:
+class SUPPORTED_SOURCE_TYPES:
     GAME_CAPTURE = "game_capture"
     WINDOW_CAPTURE = "window_capture"
     DISPLAY_CAPTURE = "monitor_capture"
 
 
-class ORGANIZATION_MODES:
+class AVAILABLE_ORGANIZATION_MODES:
     BASIC = "basic"
     DATE_BASED = "date_based"
     # SCENE_BASED = "scene_based"
@@ -39,7 +39,7 @@ class ORGANIZATION_MODES:
 
 # Version check
 
-if CONST.PYTHON_VERSION < (3, 11):
+if BASE_CONSTANTS.PYTHON_VERSION < (3, 11):
     print("Python version < 3.11, correct behaviour is not guaranteed!")
 
 
@@ -59,7 +59,7 @@ class RecORDERProperties:
         game_title_prefix: bool,
         enable_replay_organization: bool,
         enable_screenshot_organization: bool,
-        fallback_window_title: str = OBS_NAMES.DEFAULT_NOT_CAPTURED_NAME,
+        fallback_window_title: str = OBS_EVENT_NAMES.DEFAULT_NOT_CAPTURED_NAME,
         selected_source_uuid: str = None,
         selected_organization_mode: str = "basic",
     ):
@@ -79,7 +79,7 @@ class HookState:
     Single source of truth for hook-related state.
     """
 
-    def __init__(self, fallback_window_title: str = OBS_NAMES.DEFAULT_NOT_CAPTURED_NAME):
+    def __init__(self, fallback_window_title: str = OBS_EVENT_NAMES.DEFAULT_NOT_CAPTURED_NAME):
         self.source_uuid: Optional[str] = None
         self.window_title: Optional[str] = None
         self.fallback_window_title: str = fallback_window_title
@@ -177,7 +177,7 @@ class HookedHandler:
         if self.state.hooked_signal_handler is not None:
             obs.signal_handler_disconnect(
                 self.state.hooked_signal_handler,
-                OBS_NAMES.HOOKED_SIGNAL_NAME,
+                OBS_EVENT_NAMES.HOOKED_SIGNAL_NAME,
                 self.__onWindowHooked,
             )
             self.state.hooked_signal_handler = None
@@ -190,7 +190,7 @@ class HookedHandler:
 
         signal_handler = obs.obs_source_get_signal_handler(source)
         obs.signal_handler_connect(
-            signal_handler, OBS_NAMES.HOOKED_SIGNAL_NAME, self.__onWindowHooked
+            signal_handler, OBS_EVENT_NAMES.HOOKED_SIGNAL_NAME, self.__onWindowHooked
         )
 
         self.state.hooked_signal_handler = signal_handler
@@ -202,7 +202,7 @@ class HookedHandler:
         It extracts the window title and sanitize it for use as a prefix/folder name.
         """
         try:
-            raw_title = obs.calldata_string(calldata, OBS_NAMES.TITLE_CALLDATA_NAME)
+            raw_title = obs.calldata_string(calldata, OBS_EVENT_NAMES.TITLE_CALLDATA_NAME)
 
             if raw_title:
                 clean_title = self.__sanitizeTitle(raw_title)
@@ -263,13 +263,13 @@ class TitleResolver:
             return self.state.fallback_window_title
 
         try:
-            is_hooked = obs.calldata_bool(calldata, OBS_NAMES.HOOKED_SIGNAL_NAME)
+            is_hooked = obs.calldata_bool(calldata, OBS_EVENT_NAMES.HOOKED_SIGNAL_NAME)
 
             if not is_hooked:
                 print("[TitleResolver] Source not currently hooked, using fallback name")
                 return self.state.fallback_window_title
 
-            raw_title = obs.calldata_string(calldata, OBS_NAMES.TITLE_CALLDATA_NAME)
+            raw_title = obs.calldata_string(calldata, OBS_EVENT_NAMES.TITLE_CALLDATA_NAME)
 
             if raw_title:
                 clean_title = self.__sanitizeTitle(raw_title)
@@ -309,7 +309,7 @@ class TitleResolver:
                 calldata = obs.calldata_create()
                 procedure_handler = obs.obs_source_get_proc_handler(source)
                 obs.proc_handler_call(
-                    procedure_handler, OBS_NAMES.GET_HOOKED_PROCEDURE_NAME, calldata
+                    procedure_handler, OBS_EVENT_NAMES.GET_HOOKED_PROCEDURE_NAME, calldata
                 )
                 return calldata
 
@@ -338,7 +338,7 @@ class TitleResolver:
 
 class MediaFileOrganizer:
     def __init__(
-        self, title_resolver: TitleResolver, organization_mode: str = ORGANIZATION_MODES.BASIC
+        self, title_resolver: TitleResolver, organization_mode: str = AVAILABLE_ORGANIZATION_MODES.BASIC
     ):
         self.organization_mode: str = organization_mode
         self.title_resolver: TitleResolver = title_resolver
@@ -351,7 +351,7 @@ class MediaFileOrganizer:
         # print(f"[MediaOrganizer] Processing recording: {file_path}")
         # print(f"[MediaOrganizer] Window title: {game_title}")
 
-        self.__organizeFileAsync(file_path, game_title, media_type=MEDIAFILE_TYPES.RECORDING)
+        self.__organizeFileAsync(file_path, game_title, media_type=SUPPORTED_MEDIAFILE_TYPES.RECORDING)
 
     def processReplay(self, file_path: str) -> None:
         """Process a saved replay buffer file. Works in similar way to processRecording()"""
@@ -360,7 +360,7 @@ class MediaFileOrganizer:
         # print(f"[MediaOrganizer] Processing replay: {file_path}")
         # print(f"[MediaOrganizer] Window title: {game_title}")
 
-        self.__organizeFileAsync(file_path, game_title, media_type=MEDIAFILE_TYPES.REPLAY)
+        self.__organizeFileAsync(file_path, game_title, media_type=SUPPORTED_MEDIAFILE_TYPES.REPLAY)
 
     def processScreenshot(self, file_path: str) -> None:
         """Process a screenshot file. Works in similar way to processRecording()"""
@@ -369,7 +369,7 @@ class MediaFileOrganizer:
         # print(f"[MediaOrganizer] Processing screenshot: {file_path}")
         # print(f"[MediaOrganizer] Window title: {game_title}")
 
-        self.__organizeFileAsync(file_path, game_title, media_type=MEDIAFILE_TYPES.SCREENSHOT)
+        self.__organizeFileAsync(file_path, game_title, media_type=SUPPORTED_MEDIAFILE_TYPES.SCREENSHOT)
 
     def __organizeFileAsync(self, file_path: str, game_title: str, media_type: str) -> None:
         """
@@ -413,13 +413,13 @@ class MediaFileOrganizer:
         creation_date_unix = os.path.getctime(file_path)
         creation_date = datetime.fromtimestamp(creation_date_unix).strftime("%y-%m-%d")
 
-        if self.organization_mode == ORGANIZATION_MODES.BASIC:
-            if media_type == MEDIAFILE_TYPES.RECORDING:
+        if self.organization_mode == AVAILABLE_ORGANIZATION_MODES.BASIC:
+            if media_type == SUPPORTED_MEDIAFILE_TYPES.RECORDING:
                 new_directory = os.path.join(directory, game_title)
             else:
                 new_directory = os.path.join(directory, game_title, media_type)
-        elif self.organization_mode == ORGANIZATION_MODES.DATE_BASED:
-            if media_type == MEDIAFILE_TYPES.RECORDING:
+        elif self.organization_mode == AVAILABLE_ORGANIZATION_MODES.DATE_BASED:
+            if media_type == SUPPORTED_MEDIAFILE_TYPES.RECORDING:
                 new_directory = os.path.join(directory, game_title, creation_date)
             else:
                 new_directory = os.path.join(directory, game_title, media_type, creation_date)
@@ -497,7 +497,7 @@ class RecordingManager:
                 signal_handler = obs.obs_output_get_signal_handler(output)
 
                 obs.signal_handler_connect(
-                    signal_handler, OBS_NAMES.FILE_CHANGED_SIGNAL_NAME, self._callback_wrapper
+                    signal_handler, OBS_EVENT_NAMES.FILE_CHANGED_SIGNAL_NAME, self._callback_wrapper
                 )
                 self.state.file_changed_signal_handler = signal_handler
 
@@ -514,7 +514,7 @@ class RecordingManager:
         if self.state.file_changed_signal_handler is not None:
             obs.signal_handler_disconnect(
                 self.state.file_changed_signal_handler,
-                OBS_NAMES.FILE_CHANGED_SIGNAL_NAME,
+                OBS_EVENT_NAMES.FILE_CHANGED_SIGNAL_NAME,
                 self.onFileChange,
             )
             self.state.file_changed_signal_handler = None
@@ -759,7 +759,7 @@ def check_updates_callback(props, prop, *args, **kwargs):
         obs.obs_property_set_visible(version_check_prop, False)
         return True
 
-    if check_updates(CONST.VERSION):
+    if check_updates(BASE_CONSTANTS.VERSION):
         obs.obs_property_set_visible(version_check_prop, True)
         obs.obs_property_set_description(
             version_check_prop,
@@ -837,7 +837,7 @@ def has_video_output(source) -> bool:
 
 def is_display_capture(source) -> bool:
     """Check if source is a Display Capture"""
-    return obs.obs_source_get_id(source) == SOURCE_TYPES.DISPLAY_CAPTURE
+    return obs.obs_source_get_id(source) == SUPPORTED_SOURCE_TYPES.DISPLAY_CAPTURE
 
 
 def populate_source_selector(source_selector):
@@ -881,9 +881,9 @@ def populate_source_selector(source_selector):
 
 
 def populate_organization_mode(organization_mode):
-    obs.obs_property_list_add_string(organization_mode, "Basic", ORGANIZATION_MODES.BASIC)
+    obs.obs_property_list_add_string(organization_mode, "Basic", AVAILABLE_ORGANIZATION_MODES.BASIC)
     obs.obs_property_list_add_string(
-        organization_mode, "Group by Date", ORGANIZATION_MODES.DATE_BASED
+        organization_mode, "Group by Date", AVAILABLE_ORGANIZATION_MODES.DATE_BASED
     )
     # obs.obs_property_list_add_string(organization_mode, "Scene-based", "scene_based")
 
@@ -959,7 +959,7 @@ def script_properties():
 
 def script_description():
     return f"""
-        <div style="font-size: 40pt; text-align: center;"> RecORDER <i>{CONST.VERSION}</i> </div>
+        <div style="font-size: 40pt; text-align: center;"> RecORDER <i>{BASE_CONSTANTS.VERSION}</i> </div>
         <hr>
         <div style="font-size: 12pt; text-align: left;">
         Rename and organize media into subfolders!<br>
