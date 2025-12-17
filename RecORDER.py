@@ -788,10 +788,10 @@ def frontend_event_callback(event):
 
 def script_update(settings):
     global core
-
+    
     if core is not None:
         core.shutdown()
-
+    
     properties = RecORDERProperties(
         selected_source_uuid=obs.obs_data_get_string(settings, "source_selector"),
         selected_organization_mode=obs.obs_data_get_string(settings, name="organization_mode"),
@@ -874,6 +874,7 @@ def populate_source_selector(source_selector):
 
         finally:
             obs.obs_source_release(current_scene_source)
+            obs.sceneitem_list_release(scene_items)
 
     except Exception as e:
         print(f"[script_properties] Failed to populate source selector: {e}")
