@@ -1,29 +1,18 @@
-import asyncio
 import sys
-import threading
-import datetime as dt
-import traceback
-import json
 from typing import Awaitable, Optional
-from urllib.request import urlopen
-from re import sub
-from shutil import move as move_file
-
-import obspython as obs # type: ignore
+import obspython as obs  # type: ignore
 
 # Author: oxypatic! (61553947+padiix@users.noreply.github.com)
 
 # Table of capturing video source names
-# >>> ONLY PLACE WHERE MODIFICATIONS ARE SAFE FOR YOU TO DO! <<<
-SOURCE_NAMES = ["Game Capture", "Window Capture"]
-# >>> ONLY PLACE WHERE MODIFICATIONS ARE SAFE FOR YOU TO DO! <<<
 
 
 class CONST:
-    VERSION = "2.1.1"
+    VERSION = "2.2"
     PYTHON_VERSION = sys.version_info
     TIME_TO_WAIT = 0.5
-    
+
+
 class OBS_NAMES:
     DEFAULT_NOT_CAPTURED_NAME = "Unknown Game"
     HOOKED_SIGNAL_NAME = "hooked"
@@ -31,10 +20,12 @@ class OBS_NAMES:
     GET_HOOKED_PROCEDURE_NAME = "get_hooked"
     FILE_CHANGED_SIGNAL_NAME = "file_changed"
 
+
 class MEDIAFILE_TYPES:
     RECORDING = "recording"
     REPLAY = "replay"
     SCREENSHOT = "screenshot"
+
 
 class SOURCE_TYPES:
     GAME_CAPTURE = "game_capture"
@@ -50,184 +41,204 @@ if CONST.PYTHON_VERSION < (3, 11):
 
 # NEW CODE
 
+
 ## DATA
 class RecORDERProperties:
     """
     User-configurable settings that control the customizable script behaviour.
-    
+
     This class represents what the user can personalize in OBS settings.
     """
-    def __init__(self, 
-                 fallback_window_title: str = OBS_NAMES.DEFAULT_NOT_CAPTURED_NAME, 
-                 source_names: list[str] = ["Game Capture", "Window Capture"],
-                 game_title_prefix: bool = False,
-                 enable_replay_organization: bool = True, 
-                 enable_screenshot_organization: bool = True):
-        
-        self.fallback_window_title: str = fallback_window_title                     #TODO: Init with name from obs_data
-        self.source_names: list[str] = source_names                                 #TODO: Init with selected source by user (future)
-                                                                                    #       For the current situation, just assume the sources are named Game/Window Capture
-        self.game_title_prefix: bool = game_title_prefix                            #TODO: Init with bool from obs_data
-        self.enable_replay_organization: bool = enable_replay_organization          #TODO: Init with bool from obs_dataa
-        self.enable_screenshot_organization: bool = enable_screenshot_organization  #TODO: Init with bool from obs_data
-    
+
+    def __init__(
+        self,
+        game_title_prefix: bool,
+        enable_replay_organization: bool,
+        enable_screenshot_organization: bool,
+        fallback_window_title: str = OBS_NAMES.DEFAULT_NOT_CAPTURED_NAME,
+        source_names: list[str] = ["Game Capture", "Window Capture"],
+    ):
+        self.fallback_window_title: str = fallback_window_title
+        self.source_names: list[str] = (
+            source_names  # IDEA: Init with selected source by user, which returns UUID of the source (make sure that all sources are hookable)
+        )
+        #       For the current situation, just assume the sources are named Game/Window Capture
+        self.game_title_prefix: bool = game_title_prefix
+        self.enable_replay_organization: bool = enable_replay_organization
+        self.enable_screenshot_organization: bool = enable_screenshot_organization
+
+
 class HookState:
     """
     Holds everything we know about the currently hook-able source (like Game Capture/ Window Capture).
-    
-    Single source of truth for hook-related state. 
+
+    Single source of truth for hook-related state.
     """
+
     def __init__(self, fallback_window_title: str = OBS_NAMES.DEFAULT_NOT_CAPTURED_NAME):
-        self.source_uuid: Optional[str] = None              #TODO: Init of these parameters probably required
+        self.source_uuid: Optional[str] = None  # TODO: Init of these parameters probably required
         self.window_title: Optional[str] = None
         self.fallback_window_title: str = fallback_window_title
         self.hooked_signal_handler: Optional[object] = None
-        
+
     def isSourceDiscovered(self) -> bool:
         """Check if we've sucessfully found and connected to a hook-able source."""
         return self.source_uuid is not None
-    
+
     def isWindowHooked(self) -> bool:
         """Check if we've captured the game title (not using the default)."""
         return self.window_title is not None and self.window_title != self.fallback_window_title
-    
+
     def reset(self) -> None:
         """Reset all state to initial values, used when changing scene collections."""
         self.source_uuid = None
         self.window_title = None
         self.hooked_signal_handler = None
-    
+
+
 class RecordingState:
     """
     Tracks current recording sessions state including the file paths.
-    
+
     Helps manage recording splits and when to process files.
     """
+
     def __init__(self):
         self.last_file_path: Optional[str] = None
         self.file_changed_signal_handler: Optional[object] = None
-        
+
     def reset(self) -> None:
         """Clean up recording state, typically after recording stops."""
         self.last_file_path = None
         self.file_changed_signal_handler = None
-    
+
+
 class ReplayState:
     """
     Manages replay buffer state, keeping it separate from normal recording.
     """
+
     def __init__(self):
         self.last_file_path: Optional[str]
-        
+
     def reset(self) -> None:
         """Clean up replay buffer state."""
         self.last_file_path = None
-    
+
+
 ## HANDLERS
 
 # ============================================================================
 # SOURCE DISCOVERY AND MANAGEMENT
 # ============================================================================
 
+
 class HookedHandler:
     """
-    Responsible for finding the hook-able source in the current scene and establishing a connection to receive calldata with current hooked windows titles. 
-    
+    Responsible for finding the hook-able source in the current scene and establishing a connection to receive calldata with current hooked windows titles.
+
     This class knows all the details about navigating OBS's scene hierarchy and signal system.
     """
+
     def __init__(self, properties: RecORDERProperties, state: HookState):
         self.properties: RecORDERProperties = properties
         self.state: HookState = state
-        
+
     def discoverAndConnect(self) -> bool:
         """
         Main entry point for finding hook-able source.
-        
+
         Orchestrates the entire discovery process and returns whether we were sucessful.
         """
-    
+
         try:
             current_scene_source = obs.obs_frontend_get_current_scene()
             if current_scene_source is None:
                 print("[HookedHandler] No active scene found. Weird?")
                 return False
-            
+
             try:
                 current_scene = obs.obs_scene_from_source(current_scene_source)
                 scene_items = obs.obs_scene_enum_items(current_scene)
-                
+
                 found_source = self.__searchScene(scene_items)
-                
+
                 if found_source is None:
                     print("[HookedHandler] Could not find relevant source in current scene")
                     print(f"[HookedHandler] Looking for one of {self.properties.source_names}")
                     return False
-                
+
                 self.__establishHookConnection(found_source)
-                print(f"[HookedHandler] Sucessfully connected to source: {obs.obs_source_get_name(found_source)}")
+                # print(
+                #     f"[HookedHandler] Sucessfully connected to source: {obs.obs_source_get_name(found_source)}"
+                # )
                 return True
-            
+
             finally:
                 obs.obs_source_release(current_scene_source)
-                
+
         except Exception as e:
             print(f"[HookedHandler] Discovery failed with error: {e}")
             return False
-    
+
     def disconnect(self) -> None:
         """Clean-up signal connection when we're done or switching scene collections."""
         if self.state.hooked_signal_handler is not None:
             obs.signal_handler_disconnect(
                 self.state.hooked_signal_handler,
-                OBS_NAMES.HOOKED_SIGNAL_NAME, 
-                self.__onWindowHooked
+                OBS_NAMES.HOOKED_SIGNAL_NAME,
+                self.__onWindowHooked,
             )
             self.state.hooked_signal_handler = None
-    
+
     def __searchScene(self, scene_items: list) -> Optional[object]:
         """Iterate through items located in the scene and look for source with the same name as the ones configured by user."""
         for item in scene_items:
             source = obs.obs_sceneitem_get_source(item)
             source_name = obs.obs_source_get_name(source)
-            
+
             if source_name in self.properties.source_names:
                 return source
-            
+
         return None
-    
+
     def __establishHookConnection(self, source: object) -> None:
         """Connect the right source to "hooked" signal, so we get notifications whenever it hooks into a new game window."""
-        #TODO: Whip up a file creating class, that holds information about scene-to-selected_source info.
+        # TODO: Whip up a file creating class, that holds information about scene-to-selected_source info.
         #       It should go to the level of scene collections, to make sure that the user always have settings he chose.
         self.state.source_uuid = obs.obs_source_get_uuid(source)
-        
+
         signal_handler = obs.obs_source_get_signal_handler(source)
-        obs.signal_handler_connect(signal_handler, OBS_NAMES.HOOKED_SIGNAL_NAME, self.__onWindowHooked)
-        
+        obs.signal_handler_connect(
+            signal_handler, OBS_NAMES.HOOKED_SIGNAL_NAME, self.__onWindowHooked
+        )
+
         self.state.hooked_signal_handler = signal_handler
-    
+
     def __onWindowHooked(self, calldata: any) -> None:
         """
         Callback which fires whenever hook-able source hooks into a new window.
-        
+
         It extracts the window title and sanitize it for use as a prefix/folder name.
         """
         try:
             raw_title = obs.calldata_string(calldata, OBS_NAMES.TITLE_CALLDATA_NAME)
-            
+
             if raw_title:
                 clean_title = self.__sanitizeTitle(raw_title)
                 self.state.window_title = clean_title
-                print(f"[HookedHandler] Hooked window title updated: {clean_title}")
-                
+                # print(f"[HookedHandler] Hooked window title updated: {clean_title}")
+
         except Exception as e:
             print(f"[HookedHandler] Failed to extract window title: {e}")
-    
+
     def __sanitizeTitle(self, title: str) -> str:
+        import re
+
         """Removes characters that might cause problems in file/folder names, keeping only alphanumerics and spaces between words."""
 
         # Remove non-alphanumeric characters (ex. ':')
-        title = sub(r"[^A-Za-z0-9 ]+", "", title)
+        title = re.sub(r"[^A-Za-z0-9 ]+", "", title)
 
         # Remove whitespaces at the end
         title = title.rstrip()
@@ -237,453 +248,507 @@ class HookedHandler:
 
         return title
 
+
 # ============================================================================
 # HOOK-ABLE WINDOW TITLE MANAGEMENT
 # ============================================================================
-    
+
+
 class TitleResolver:
     """
     Responsible for determining the currently captured window.
-    
+
     This can happen in multiple ways - either through "hooked" callback or by actively querying the source.
-    
+
     This class encapsulates this logic.
     """
+
     def __init__(self, state: HookState):
         self.state: HookState = state
-        
+
     def resolveCurrentTitle(self) -> str:
         """
         Main method of figuring out the window title to use. It tries to get current hooked window title, but falls back to the fallback name if nothing is hooked.
-        
+
         Called before media file processing to ensure we have the right title.
         """
         if not self.state.isSourceDiscovered():
             print("[TitleResolver] No source configured, using fallback name")
             return self.state.fallback_window_title
-        
+
         calldata = self.__queryHookStatus()
-        
+
         if calldata is None:
             print("[TitleResolver] Failed to query source, using fallback name")
             return self.state.fallback_window_title
-        
+
         try:
             is_hooked = obs.calldata_bool(calldata, OBS_NAMES.HOOKED_SIGNAL_NAME)
-            
+
             if not is_hooked:
                 print("[TitleResolver] Source not currently hooked, using fallback name")
                 return self.state.fallback_window_title
-            
+
             raw_title = obs.calldata_string(calldata, OBS_NAMES.TITLE_CALLDATA_NAME)
-            
+
             if raw_title:
                 clean_title = self.__sanitizeTitle(raw_title)
                 self.state.window_title = clean_title
-                print(f"[TitleResolver] Resolved window title: {clean_title}")
+                # print(f"[TitleResolver] Resolved window title: {clean_title}")
                 return clean_title
             else:
-                print("[TitleResolver] No title in hooked source, using default name")
+                # print("[TitleResolver] No title in hooked source, using default name")
                 return self.state.fallback_window_title
-            
+
         except Exception as e:
-            print (f"[TitleResolver] Error extracting title: {e}")
+            print(f"[TitleResolver] Error extracting title: {e}")
             return self.state.fallback_window_title
-        
+
         finally:
             obs.calldata_destroy(calldata)
-    
+
     def getCurrentTitleOrDefault(self) -> str:
         if self.state.isWindowHooked():
             return self.state.window_title
         return self.state.fallback_window_title
-    
+
     def __queryHookStatus(self) -> Optional[object]:
         """
         Actively asks the hook-able source if it's currently hooked to a window.
-        
+
         This uses OBS's procedure handler system to make a synchronous query.
         """
-        
+
         try:
             source = obs.obs_get_source_by_uuid(self.state.source_uuid)
-            
+
             if source is None:
                 return None
-            
+
             try:
                 calldata = obs.calldata_create()
                 procedure_handler = obs.obs_source_get_proc_handler(source)
-                obs.proc_handler_call(procedure_handler, OBS_NAMES.GET_HOOKED_PROCEDURE_NAME, calldata)
+                obs.proc_handler_call(
+                    procedure_handler, OBS_NAMES.GET_HOOKED_PROCEDURE_NAME, calldata
+                )
                 return calldata
-            
+
             finally:
                 obs.obs_source_release(source)
-        
+
         except Exception as e:
             print(f"[TitleResolver] Query failed: {e}")
             return None
-    
+
     def __sanitizeTitle(self, title: str) -> str:
         """Same sanitation logic as in the HookedHandler"""
-        #FIXME: Violates DRY, but hell be damned if I know how to share method between classes for now.
+        # FIXME: Violates DRY, but hell be damned if I know how to share method between classes for now.
+        import re
 
-        title = sub(r"[^A-Za-z0-9 ]+", "", title)
+        title = re.sub(r"[^A-Za-z0-9 ]+", "", title)
         title = title.rstrip()
         title = " ".join(title.split())
         return title
+
 
 # ============================================================================
 # FILE ORGANIZATION
 # ============================================================================
 
+
 class MediaFileOrganizer:
     def __init__(self, title_resolver: TitleResolver):
         self.title_resolver: TitleResolver = title_resolver
-        
+
+        # IDEA: Add options of organization
+        #    Example:
+        #   1. Basic organization (what we have now)
+        #   2. Date-based organization (if user chooses this, it will make the script move files based on the date - for ex. YY/MM/DD)
+        #   3. Recording container organization? Scene/Source-based organization?
+
     def processRecording(self, file_path: str) -> None:
-        """Process a recording - determine the window title, create folder stucture (if not created), 
+        """Process a recording - determine the window title, create folder stucture (if not created),
         and move the file asynchronously to avoid blocking main OBS thread."""
         game_title = self.title_resolver.resolveCurrentTitle()
-        
-        print(f"[MediaOrganizer] Processing recording: {file_path}")
-        print(f"[MediaOrganizer] Game title: {game_title}")
-        
+
+        # print(f"[MediaOrganizer] Processing recording: {file_path}")
+        # print(f"[MediaOrganizer] Window title: {game_title}")
+
         self.__organizeFileAsync(file_path, game_title, media_type=MEDIAFILE_TYPES.RECORDING)
-    
+
     def processReplay(self, file_path: str) -> None:
         """Process a saved replay buffer file. Works in similar way to processRecording()"""
         game_title = self.title_resolver.resolveCurrentTitle()
-        
-        print(f"[MediaOrganizer] Processing replay: {file_path}")
-        print(f"[MediaOrganizer] Game title: {game_title}")
-        
+
+        # print(f"[MediaOrganizer] Processing replay: {file_path}")
+        # print(f"[MediaOrganizer] Window title: {game_title}")
+
         self.__organizeFileAsync(file_path, game_title, media_type=MEDIAFILE_TYPES.REPLAY)
-    
+
     def processScreenshot(self, file_path: str) -> None:
         """Process a screenshot file. Works in similar way to processRecording()"""
         game_title = self.title_resolver.resolveCurrentTitle()
-        
-        print(f"[MediaOrganizer] Processing screenshot: {file_path}")
-        print(f"[MediaOrganizer] Game title: {game_title}")
-        
+
+        # print(f"[MediaOrganizer] Processing screenshot: {file_path}")
+        # print(f"[MediaOrganizer] Window title: {game_title}")
+
         self.__organizeFileAsync(file_path, game_title, media_type=MEDIAFILE_TYPES.SCREENSHOT)
-    
+
     def __organizeFileAsync(self, file_path: str, game_title: str, media_type: str) -> None:
         """
         Start a background thread to handle file operations.
-        
+
         This is critical, because file operations can take time and we can not freeze OBS main thread, because it will interrupt recording/replay.
         """
+        import threading
+
         thread = threading.Thread(
-            target=self.__moveFileWorker,
-            args=(file_path, game_title, media_type),
-            daemon=True
+            target=self.__moveFileWorker, args=(file_path, game_title, media_type), daemon=True
         )
-        
+
         thread.start()
-    
+
     def __moveFileWorker(self, file_path: str, game_title: str, media_type: str) -> None:
-        """The actual worker that runs in a background thread. 
+        """The actual worker that runs in a background thread.
         We use asyncio to handle the file operations asynchronously and allows for retries and proper error handling"""
+        import asyncio
+
         try:
-            # Create a new path based on game_title and media_type 
+            # Create a new path based on game_title and media_type
             target_path = self.__calculateNewPath(file_path, game_title, media_type)
-            
+
             # Run the async move operation
             asyncio.run(self.__move(file_path, target_path))
-            
+
             print(f"[MediaOrganizer] Sucessfully moved: {file_path} -> {target_path}")
-            
+
         except Exception as e:
             print(f"[MediaOrganizer] Failed to move file: {e}")
-        
+
     def __calculateNewPath(self, file_path: str, game_title: str, media_type: str) -> None:
         """Determine new path for the file based on game title and media type."""
         import os
+
         directory = os.path.dirname(file_path)
         filename = os.path.basename(file_path)
-        
+
         if media_type == MEDIAFILE_TYPES.RECORDING:
             new_directory = os.path.join(directory, game_title)
         else:
             new_directory = os.path.join(directory, game_title, media_type)
-        
+
         return os.path.join(new_directory, filename)
-    
+
     async def __move(self, path: str, target_path: str) -> Awaitable:
         """Async move method that handles retries and ensures file operation completes succesfully."""
         import os
         import shutil
-        
+        import asyncio
+
         os.makedirs(os.path.dirname(target_path), exist_ok=True)
-        
+
         # Retry logic
         await asyncio.sleep(0.1)
         shutil.move(path, target_path)
+
 
 # ============================================================================
 # RECORDING MANAGEMENT
 # ============================================================================
 
+
 class RecordingManager:
     """Manages recording, including handling splits when OBS creates new files based on auto-split functionality."""
-    
+
     def __init__(self, state: RecordingState, organizer: MediaFileOrganizer):
         self.state: RecordingState = state
         self.organizer: MediaFileOrganizer = organizer
-        
+        self._callback_wrapper = self._create_callback_wrapper()
+
     def start(self) -> None:
         """Called when recording starts."""
         self.state.last_file_path = obs.obs_frontend_get_last_recording()
-        
+
         self.__setupFileChangeMonitoring()
-        
+
         print(f"[RecordingManager] Recording started: {self.state.last_file_path}")
-    
+
     def stop(self) -> None:
         """Called when recording stops. We process the final file and clean-up."""
+
         if self.state.last_file_path:
             self.organizer.processRecording(self.state.last_file_path)
         else:
             print("[RecordingManager] No recorded file location, CHECK THIS!")
-        
+
         self.__teardownFileChangeMonitoring()
         self.state.reset()
-    
+
+    def _create_callback_wrapper(self):
+        """Fix function for a C wrapper that is the obspython library. Otherwise it will not work."""
+
+        def wrapper(calldata: any) -> None:
+            self.onFileChange(calldata)
+
+        return wrapper
+
     def __setupFileChangeMonitoring(self) -> None:
         """
         Connect output to the "file_changed" signal, which fires on recording splits.
-        
+
         We disconnect any existing connection first to avoid duplicates.
         """
         self.__teardownFileChangeMonitoring()
-        
+
         try:
             output = obs.obs_frontend_get_recording_output()
             if output is None:
                 print("[RecordingManager] No recording output??? CRITICAL!")
                 return
-            
+
             try:
                 signal_handler = obs.obs_output_get_signal_handler(output)
-                obs.signal_handler_connect(signal_handler, OBS_NAMES.FILE_CHANGED_SIGNAL_NAME, self.__onFileChange)
+
+                obs.signal_handler_connect(
+                    signal_handler, OBS_NAMES.FILE_CHANGED_SIGNAL_NAME, self._callback_wrapper
+                )
                 self.state.file_changed_signal_handler = signal_handler
-                
-                print("[RecordingManager] File change monitoring enabled")
-                
+
+                print("[RecordingManager] Split monitoring enabled")
+
             finally:
                 obs.obs_output_release(output)
-            
+
         except Exception as e:
-            print(f"[RecordingManager] Failed to setup file_change monitoring: {e}")
-    
+            print(f"[RecordingManager] Failed to setup split monitoring: {e}")
+
     def __teardownFileChangeMonitoring(self) -> None:
         """Disconnect from the file_changed signal."""
         if self.state.file_changed_signal_handler is not None:
             obs.signal_handler_disconnect(
                 self.state.file_changed_signal_handler,
                 OBS_NAMES.FILE_CHANGED_SIGNAL_NAME,
-                self.__onFileChange
-                )
+                self.onFileChange,
+            )
             self.state.file_changed_signal_handler = None
-    
-    def __onFileChange(self, calldata: any) -> None:
+
+    def onFileChange(self, calldata: any) -> None:
         """Callback firing when OBS splits recording to a new file - Process previous file, change target to new recording file."""
         old_file = self.state.last_file_path
         new_file = obs.obs_frontend_get_last_recording()
-        
+
         # Update tracking for next split
         self.state.last_file_path = new_file
-        
+
         # Validate we have a file to process and it's actually diferrent
         if old_file and old_file == new_file:
             return
-        
+
+        # Check current window title at time of split
+
+        current_title = self.organizer.title_resolver.resolveCurrentTitle()
+
+        print(f"[RecordingManager] Window title: {current_title}")
         print(f"[RecordingManager] Split detected - processing: {old_file}")
         self.organizer.processRecording(old_file)
+
 
 # ============================================================================
 # REPLAY BUFFER MANAGEMENT
 # ============================================================================
-        
+
+
 class ReplayManager:
     """Manages replay buffer recordings. Simpler than recording, because we only need to process files when user explicitly saves a replay."""
+
     def __init__(self, state: ReplayState, organizer: MediaFileOrganizer):
         self.state: ReplayState = state
         self.organizer: MediaFileOrganizer = organizer
-        
+
     def start(self) -> None:
         """Called when the replay buffer starts."""
+        self.state.last_file_path = obs.obs_frontend_get_last_replay()
         print(f"[ReplayManager] Replay Buffer started: {self.state.last_file_path}")
-    
+
     def stop(self) -> None:
         """Called when the replay buffer stops."""
         self.state.reset()
         print("[ReplayManager] Replay Buffer stopped.")
-    
+
     def processSavedReplay(self) -> None:
         """Called when user saves a replay. We get the path to the saved file and process it through MediaFileOrganizer."""
         self.state.last_file_path = obs.obs_frontend_get_last_replay()
-        
+
         if self.state.last_file_path:
             print(f"[ReplayManager] Replay saved: {self.state.last_file_path}")
             self.organizer.processReplay(self.state.last_file_path)
 
+
 # ============================================================================
 # CENTRAL ORCHESTRATOR
 # ============================================================================
+
 
 class RecORDER:
     def __init__(self, properties: RecORDERProperties):
         self.__properties: RecORDERProperties = properties
         self.__hook_state: HookState = HookState(
             fallback_window_title=self.__properties.fallback_window_title
-            )
+        )
         self.__recording_state: RecordingState = RecordingState()
         self.__replay_state: ReplayState = ReplayState()
         self.hooked_handler: HookedHandler = HookedHandler(
-            properties=self.__properties,
-            state=self.__hook_state
+            properties=self.__properties, state=self.__hook_state
         )
-        self.title_resolver: TitleResolver = TitleResolver(
-            state=self.__hook_state
-            )
-        self.organizer: MediaFileOrganizer = MediaFileOrganizer(
-            title_resolver=self.title_resolver
-            )
+        self.title_resolver: TitleResolver = TitleResolver(state=self.__hook_state)
+        self.organizer: MediaFileOrganizer = MediaFileOrganizer(title_resolver=self.title_resolver)
         self.recording_manager: RecordingManager = RecordingManager(
-            state=self.__recording_state, 
-            organizer=self.organizer
-            )
+            state=self.__recording_state, organizer=self.organizer
+        )
         self.replay_manager: ReplayManager = ReplayManager(
-            state=self.replay_manager, 
-            organizer=self.organizer
-            )
+            state=self.__replay_state, organizer=self.organizer
+        )
         self.event_handlers = self.__buildEventHandlers()
 
-    def __buildEventHandlers(self) -> dict[int, callable[[], None]]:
+    def __buildEventHandlers(self) -> dict[int, callable]:
         """Creates a mapping of OBS events to the handler methods. This is where we also decide which features are enabled based on user configuration."""
         handlers = {
             obs.OBS_FRONTEND_EVENT_RECORDING_STARTED: self.__handleRecordingStart,
             obs.OBS_FRONTEND_EVENT_RECORDING_STOPPED: self.__handleRecordingStop,
-            obs.OBS_FRONTEND_EVENT_SCENE_COLLECTION_CHANGED: self.__handleSceneCollectionChange
-            #obs.OBS_FRONTEND_EVENT_SCENE_CHANGED: self.__handleSceneChange   #TODO: Implement in future, when we have settings file with mappings of selected sources to scenes and scenes collections
+            obs.OBS_FRONTEND_EVENT_SCENE_COLLECTION_CHANGED: self.__handleSceneCollectionChange,
+            # obs.OBS_FRONTEND_EVENT_SCENE_CHANGED: self.__handleSceneChange   #TODO: Implement in future, when we have settings file with mappings of selected sources to scenes and scenes collections
         }
-        
+
         if self.__properties.enable_replay_organization:
             handlers[obs.OBS_FRONTEND_EVENT_REPLAY_BUFFER_STARTED] = self.__handleReplayStart
             handlers[obs.OBS_FRONTEND_EVENT_REPLAY_BUFFER_SAVED] = self.__handleReplaySave
             handlers[obs.OBS_FRONTEND_EVENT_REPLAY_BUFFER_STOPPED] = self.__handleReplayStop
-            
+
         if self.__properties.enable_screenshot_organization:
             handlers[obs.OBS_FRONTEND_EVENT_SCREENSHOT_TAKEN] = self.__handleScreenshot
-            
+
+        return handlers
+
     def dispatchEvent(self, event: int) -> None:
         """Single entry point for all OBS events, called by OBS whenever something happens, this method routes it to the appropriate handler."""
         handler = self.event_handlers.get(event)
-        
+
         if handler is not None:
             try:
                 handler()
             except Exception as e:
                 print(f"[RecORDER Core] Error handling event {event}: {e}")
-                
+
     def __ensureHookedAndConnected(self) -> None:
         """Helper method that ensures we've a hooked window in hook-able source before we start processing any media. Called at the end of each session type."""
         if not self.__hook_state.isSourceDiscovered():
-            print("[RecORDER Core] Discovering hook-able source...")
+            # print("[RecORDER Core] Discovering hook-able source...")
             self.hooked_handler.discoverAndConnect()
-            
+
     # ========================================================================
     # EVENT HANDLERS - These are the methods that respond to OBS events
     # ========================================================================
-    
+
     def __handleRecordingStart(self) -> None:
         """Recording started - init and prepare for splits."""
-        print("[RecORDER Core] Recording started")
+        # print("[RecORDER Core] Recording started")
+
+        if not self.__hook_state.isSourceDiscovered():
+            # print("[RecORDER Core] Discovering hook-able source for upcoming splits.")
+            self.hooked_handler.discoverAndConnect()
+
         self.recording_manager.start()
-        
+
     def __handleRecordingStop(self) -> None:
         """Recording stopped - finalize and process file"""
-        print("[RecORDER Core] Recording stopped")
-        self.__ensureHookedAndConnected()
+        # print("[RecORDER Core] Recording stopped")
+
+        if not self.__hook_state.isWindowHooked():
+            # print("[RecORDER Core] Ensuring source is discovered and hooked...")
+            self.hooked_handler.discoverAndConnect()
+
         self.recording_manager.stop()
-        
+
     def __handleReplayStart(self) -> None:
         """Replay Buffer has started - initialize"""
-        print("[RecORDER Core] Replay Buffer started")
+        # print("[RecORDER Core] Replay Buffer started")
         self.replay_manager.start()
-        
+
     def __handleReplaySave(self) -> None:
         """User saved a replay - process it"""
-        print("[RecORDER Core] Replay Buffer saved")
+        # print("[RecORDER Core] Replay Buffer saved")
         self.__ensureHookedAndConnected()
         self.replay_manager.processSavedReplay()
-        
+
     def __handleReplayStop(self) -> None:
         """Replay Buffer was stopped - clean up"""
-        print("[RecORDER Core] Replay Buffer stopped")
+        # print("[RecORDER Core] Replay Buffer stopped")
         self.replay_manager.stop()
-        
+
     def __handleScreenshot(self) -> None:
         """Screenshot was taken - process it"""
         print("[RecORDER Core] Screenshot taken")
         self.__ensureHookedAndConnected()
-        
+
         screenshot_path = obs.obs_frontend_get_last_screenshot()
         if screenshot_path:
             self.organizer.processScreenshot(screenshot_path)
-            
-    def __handleSceneCollectionChange(self) -> None:
+
+    def __handleSceneCollectionChange(self, reuse_for_shutdown: bool = False) -> None:
         """Scene collection was changed - clean up everything, because our source references will be invalid"""
-        print("[RecORDER Core] Scene Collection changed - performing cleanup")
-        
+        if not reuse_for_shutdown:
+            print("[RecORDER Core] Scene Collection changed - performing cleanup")
+
         # Save and stop any active recording or replay buffer to ensure clean state
         if obs.obs_frontend_recording_active():
             obs.obs_frontend_recording_stop()
             print("[RecORDER Core] Stopped active recording")
-            
+
         if obs.obs_frontend_replay_buffer_active():
             obs.obs_frontend_replay_buffer_save()
             obs.obs_frontend_replay_buffer_stop()
             print("[RecORDER Core] Stopped active replay buffer")
-            
+
         # Disconnect all signal handlers and reset state
         self.hooked_handler.disconnect()
         self.__hook_state.reset()
         self.__recording_state.reset()
         self.__replay_state.reset()
-        
+
         print("[RecORDER Core] Cleanup complete")
-        
+
     def shutdown(self) -> None:
         """Called when script is being unloaded. Cleans up all connections and state to prevent memory leaks/ crashes."""
         print("[RecORDER Core] Shutting down")
-        self.__handleSceneCollectionChange()    # Reuse the cleanup logic
-    
+        self.__handleSceneCollectionChange(True)  # Reuse the cleanup logic
+
+
 # END - NEW CODE
 
-
-# Values supporting smooth working and fewer calls
-
-file_changed_sh_ref = None
+core: Optional[RecORDER] = None
 
 
 # Utility functions
 
+
 def log(message):
+    import datetime as dt
+
     print(f"[{dt.datetime.now().isoformat(sep=' ', timespec='seconds')}] {message}")
-    
-    
+
+
 def get_latest_release_tag() -> dict | None:
+    import json
+    import traceback
+    from urllib.request import urlopen
+
     url = "https://api.github.com/repos/oxypatic/RecORDER/releases/latest"
 
     try:
         with urlopen(url, timeout=2) as response:
             if response.status == 200:
                 data = json.load(response)
-                return data.get('tag_name')
+                return data.get("tag_name")
     except Exception:
         log("Failed to check updates.")
         log(traceback.format_exc(1))
@@ -692,704 +757,141 @@ def get_latest_release_tag() -> dict | None:
 
 def check_updates(current_version: str):
     latest_version = get_latest_release_tag()
-    if latest_version and f'{current_version}' != latest_version:
+    if latest_version and f"{current_version}" != latest_version:
         return True
     return False
 
+
 def check_updates_callback(props, prop, *args, **kwargs):
     version_check_prop = obs.obs_properties_get(props, "version_info")
-    
-    if (obs.obs_property_visible(version_check_prop)):
+
+    if obs.obs_property_visible(version_check_prop):
         obs.obs_property_set_visible(version_check_prop, False)
         return True
-    
+
     if check_updates(CONST.VERSION):
         obs.obs_property_set_visible(version_check_prop, True)
-        obs.obs_property_set_description(version_check_prop, f"Update available: {get_latest_release_tag()}.\nHead to GitHub for latest version!")
+        obs.obs_property_set_description(
+            version_check_prop,
+            f"Update available: {get_latest_release_tag()}\nHead to GitHub for latest version!",
+        )
     else:
         obs.obs_property_set_visible(version_check_prop, True)
         obs.obs_property_set_description(version_check_prop, "You have the latest version!")
-        
+
     return True
-
-# CLASSES
-
-class GlobalVariables:
-    """Class that holds and allows better control over the Global variables used in this script"""
-
-    def __init__(self):
-        # [PROPERTIES]
-        self._add_game_title_to_recording_name = None
-
-        # [Related to RECORDING]
-        self._is_recording = False
-        self._is_replay_active = False
-        self._last_recording_path = None
-        self._source_uuid = None
-
-    def apply_config(self, add_game_title_to_recording_name: bool, default_folder_name: str):
-        self._add_game_title_to_recording_name = add_game_title_to_recording_name
-        self._default_recording_name = default_folder_name
-        self._game_title = self._default_recording_name
-        
-    # ---
-
-    @property
-    def add_game_title_to_recording_name(self):
-        return self._add_game_title_to_recording_name
-    
-    @add_game_title_to_recording_name.setter
-    def add_game_title_to_recording_name(self, value: bool):
-        self._add_game_title_to_recording_name = value
-        self._time_to_wait = value
-
-    # ---
-
-    @property
-    def default_recording_name(self) -> str:
-        return self._default_recording_name
-
-    @default_recording_name.setter
-    def default_recording_name(self, value: str):
-        self._default_recording_name = value
-    
-    @property
-    def is_recording(self) -> bool:
-        return self._is_recording
-    
-    @is_recording.setter
-    def is_recording(self, value: bool):
-        self._is_recording = value
-
-    @property
-    def is_replay_active(self) -> bool:
-        return self._is_replay_active
-    
-    @is_replay_active.setter
-    def is_replay_active(self, value: bool):
-        self._is_replay_active = value
-
-    @property
-    def last_recording(self) -> str | None:
-        return self._last_recording_path
-    
-    @last_recording.setter
-    def last_recording(self, value: str | None):
-        self._last_recording_path = value
-    
-    @property
-    def game_title(self) -> str:
-        return self._game_title
-
-    @game_title.setter
-    def game_title(self, value: str):
-        self._game_title = remove_unusable_title_characters(value)
-
-    @property
-    def source_uuid(self) -> str | None:
-        return self._source_uuid
-
-    @source_uuid.setter
-    def source_uuid(self, value: str | None):
-        self._source_uuid = value
-
-    # ---
-
-    def unload_func(self):
-        for key in list(self.__dict__.keys()):
-            if key.startswith('_'):
-                self.__dict__[key] = None
-
-
-class MediaFile:
-    """Base class for managing media files (recordings and screenshots)"""
-
-    def __init__(self, custom_path: str | None = None, media_type: str = "recording") -> None:
-        """Initialize media file with common path handling.
-        
-        Args:
-            custom_path: Optional custom path to file
-            media_type: Type of media - 'recording', 'replay', or 'screenshot'
-        """
-        import os
-        global globalVariables
-        
-        self.game_title = globalVariables.game_title
-        self.add_title_prefix = globalVariables.add_game_title_to_recording_name
-        self.media_type = media_type
-        
-        # Set custom subfolder name based on media type
-        if media_type == "recording":
-            self.subfolder_name = None  # No subfolder for recordings
-        elif media_type == "replay":
-            self.subfolder_name = "Replays"
-        elif media_type == "screenshot":
-            self.subfolder_name = "Screenshots"
-        else:
-            self.subfolder_name = None
-        
-        # Determine file path
-        if custom_path:
-            self.path = custom_path
-        elif media_type == "replay":
-            self.path = obs.obs_frontend_get_last_replay()
-        elif media_type == "screenshot":
-            self.path = obs.obs_frontend_get_last_screenshot()
-        else:
-            self.path = obs.obs_frontend_get_last_recording()
-        
-        # Extract directory and filename
-        self.dir = os.path.dirname(self.path)
-        self.filename = os.path.basename(self.path)
-    
-    def get_filename(self) -> str:
-        """Returns the base file name.
-        
-        Returns:
-            str: name of the file
-        """
-        return self.filename
-    
-    def get_new_folder(self) -> str:
-        """Returns the target folder path for this media file.
-        
-        Returns:
-            str: path to the target folder
-        """
-        import os
-        if self.subfolder_name:
-            return os.path.normpath(os.path.join(self.dir, self.game_title, self.subfolder_name))
-        else:
-            return os.path.normpath(os.path.join(self.dir, self.game_title))
-    
-    def get_new_filename(self) -> str:
-        """Returns the new filename with optional game title prefix.
-        
-        Returns:
-            str: new filename for the file
-        """
-        if self.add_title_prefix:
-            return f"{self.game_title} - {self.get_filename()}"
-        else:
-            return self.get_filename()
-    
-    def get_old_path(self) -> str:
-        """Returns the original file path.
-        
-        Returns:
-            str: original full path of the file
-        """
-        import os
-        return os.path.normpath(os.path.join(self.dir, self.get_filename()))
-    
-    def get_new_path(self) -> str:
-        """Returns the target file path.
-        
-        Returns:
-            str: target full path for the file
-        """
-        import os
-        return os.path.normpath(os.path.join(self.get_new_folder(), self.get_new_filename()))
-    
-    def create_new_folder(self) -> None:
-        """Creates the target folder if it doesn't exist."""
-        import os
-        if not os.path.exists(self.get_new_folder()):
-            os.makedirs(self.get_new_folder())
-
-
-class Recording(MediaFile):
-    """Class for handling recording files"""
-
-    def __init__(self, custom_path: str | None = None, is_replay: bool = False) -> None:
-        """Create a recording file object.
-
-        Args:
-            custom_path (str): Optional path to a recording file
-            is_replay (bool): Whether this is a replay buffer recording
-        """
-        media_type = "replay" if is_replay else "recording"
-        super().__init__(custom_path=custom_path, media_type=media_type)
-
-
-class Screenshot(MediaFile):
-    """Class for handling screenshot files"""
-
-    def __init__(self, custom_path: str | None = None) -> None:
-        """Create a screenshot file object.
-
-        Args:
-            custom_path (str): Optional path to a screenshot file
-        """
-        super().__init__(custom_path=custom_path, media_type="screenshot")
-
-
-# ASYNC FUNCTIONS
-
-async def remember_and_move(old_path: str, new_path: str) -> None:
-    """Moves the recording to new location using shutil.move() with retries."""
-    import os
-    if not os.path.exists(old_path):
-        log(f"(Asyncio) File does not exist: {old_path}")
-        return
-    
-    time_to_wait = CONST.TIME_TO_WAIT
-
-    new_dir = None
-    max_attempts = 4
-    enlarge_timeout_value = 2
-    for attempt in range(max_attempts):
-        try:
-            new_dir = move_file(old_path, new_path)
-            break  # Success, exit retry loop
-        except Exception as e:
-            if attempt < 3:  # Don't print on last attempt (will print final error below)
-                log(f"Move attempt {attempt + 1} failed: {e}")
-                await asyncio.sleep(time_to_wait)
-                time_to_wait *= enlarge_timeout_value
-            else:
-                log(f"(Asyncio) File move failed after {attempt + 1} attempts: {e}")
-
-    if new_dir is None:
-        log("(Asyncio) File was not moved.")
-        return
-
-    log("(Asyncio) Done!")
-    log(f"(Asyncio) File moved to: {new_dir}")
-
-# HELPER FUNCTIONS
-
-def remove_unusable_title_characters(title: str) -> str:
-    # Remove non-alphanumeric characters (ex. ':')
-    title = sub(r"[^A-Za-z0-9 ]+", "", title)
-
-    # Remove whitespaces at the end
-    title = "".join(title.rstrip())
-
-    # Remove additional whitespaces
-    title = " ".join(title.split())
-
-    return title
-
-
-def move_media_file_asyncio(media_file: MediaFile) -> None:
-    """Asynchronously move media file to organized folder."""
-    asyncio.run(remember_and_move(media_file.get_old_path(), media_file.get_new_path()))
-    
-    
-# SIGNAL-RELATED
-
-def file_changed_sh(recreate: bool = False) -> None:
-    """Signal handler function reacting to automatic file splitting."""
-    global file_changed_sh_ref
-    if not file_changed_sh_ref:
-        output = obs.obs_frontend_get_recording_output()
-        try:
-            file_changed_sh_ref = obs.obs_output_get_signal_handler(output)
-            obs.signal_handler_connect(file_changed_sh_ref, "file_changed", file_changed_cb)
-        finally:
-            obs.obs_output_release(output)
-    else:
-        obs.signal_handler_disconnect(file_changed_sh_ref, "file_changed", file_changed_cb)
-        if recreate:
-            output = obs.obs_frontend_get_recording_output()
-            try:
-                file_changed_sh_ref = obs.obs_output_get_signal_handler(output)
-                obs.signal_handler_connect(file_changed_sh_ref, "file_changed", file_changed_cb)
-            finally:
-                obs.obs_output_release(output)
-
-
-def file_changed_cb(calldata: object) -> None:
-    """Callback function reacting to the file_changed_sh signal handler function being triggered."""
-
-    log("Recording automatic splitting detected!\n")
-
-    global globalVariables
-    
-    log("Looking for split file...")
-    old_file = globalVariables.last_recording
-    new_file = obs.obs_frontend_get_last_recording()
-    
-    # Store the new file for next split
-    globalVariables.last_recording = new_file
-
-    if old_file and old_file != new_file:
-        log(f"Moving old recording: {old_file}")
-        log(f"New recording detected: {new_file}")
-        if globalVariables.game_title == globalVariables.default_recording_name:
-            log("Running get_hooked procedure to get current app title...\n")
-            check_if_hooked_and_update_title()
-
-        rec = Recording(custom_path=old_file)
-        rec.create_new_folder()
-        thread = threading.Thread(target=move_media_file_asyncio, args=(rec,), daemon=True)
-        thread.start()
-
-
-def hooked_sh() -> None:
-    global SOURCE_NAMES
-    global globalVariables
-    scene_item_source = None
-
-    log("Checking available sources for a match with source table...")
-
-    current_scene_as_source = obs.obs_frontend_get_current_scene()
-    scene = obs.obs_scene_from_source(current_scene_as_source)
-
-    # noinspection PyArgumentList
-    #TODO: Can I make this work without SOURCE_NAMES?
-    scene_items = obs.obs_scene_enum_items(scene)
-    for item in scene_items:
-        scene_item_source = obs.obs_sceneitem_get_source(item)
-        name = obs.obs_source_get_name(scene_item_source)
-        for source in SOURCE_NAMES:
-            if name == source:
-                globalVariables.source_uuid = obs.obs_source_get_uuid(scene_item_source)
-                log("Match found!")
-                break
-
-    obs.sceneitem_list_release(scene_items)
-    obs.obs_source_release(current_scene_as_source)
-
-    if not globalVariables.source_uuid:
-        log("Nothing was found... Are you sure your source is in the 'SOURCE_NAMES' array?")
-        return
-
-    # Only proceed if we found a valid source
-    if scene_item_source is not None:
-        try:
-            # log("Fetching the signal handler from the matching source...")
-            source_sh_ref = obs.obs_source_get_signal_handler(scene_item_source)
-            # log("Connecting the source signal handler to 'hooked' signal...")
-            obs.signal_handler_connect(source_sh_ref, "hooked", hooked_cb)
-        except Exception as e:
-            log(f"Error connecting hooked signal: {e}")
-    else:
-        log("Warning: No matching source item found.")
-    
-    
-def hooked_cb(calldata: object) -> None:
-    global globalVariables
-
-    log("Fetching data from calldata...")
-
-    globalVariables.game_title = obs.calldata_string(calldata, "title")
-    log(f"gameTitle: {globalVariables.game_title}")
-
-
-# EVENTS
-
-def _handle_recording_start() -> None:
-    global globalVariables
-    
-    log("Recording has started...\n")
-    log("Reloading the signals!\n")
-    if not globalVariables.source_uuid:
-        hooked_sh()  # Respond to selected source hooking to a window    
-    globalVariables.last_recording = obs.obs_frontend_get_last_recording()
-    
-    file_changed_sh(recreate=True)  # Respond to splitting the recording (ex. automatic recording split)
-    log("Signals reloaded!\n")
-    log("Resetting the recording related values...\n")
-
-    globalVariables.is_recording = True
-    globalVariables.game_title = globalVariables.default_recording_name
-
-    log(f"Recording started: {'Yes' if globalVariables.is_recording else 'No'}")
-    log(f"Current game title: {globalVariables.game_title}")
-
-
-def _handle_recording_stop() -> None:
-    global globalVariables
-    
-    log("Recording has stopped, moving the last file into right folder...\n")
-
-    if globalVariables.game_title == globalVariables.default_recording_name:
-        log("Running get_hooked procedure to get current app title...\n")
-        check_if_hooked_and_update_title()
-
-    rec = Recording()
-    rec.create_new_folder()
-    thread = threading.Thread(target=move_media_file_asyncio, args=(rec,), daemon=True)
-    thread.start()
-
-    log("Job's done. The file was moved.")
-    globalVariables.last_recording = None
-    globalVariables.is_recording = False
-    
-    
-def _handle_replay_buffer_start() -> None:
-    global globalVariables
-    
-    log("Replay buffer has started...\n")
-
-    if not globalVariables.source_uuid:
-        log("Reloading the signals!")
-        hooked_sh()  # Respond to selected source hooking to a window
-        log("Signals reloaded!\n")
-
-    log("Resetting the recording related values...\n")
-
-    globalVariables.is_replay_active = True
-    globalVariables.last_recording = obs.obs_frontend_get_last_recording()
-    globalVariables.game_title = globalVariables.default_recording_name
-
-    log(f"Replay active? {'Yes' if globalVariables.is_replay_active else 'No'}")
-    log(f"CurrentRecording is {globalVariables.last_recording}")
-    log(f"Game title set to {globalVariables.game_title}")
-
-
-def _handle_replay_buffer_save() -> None:
-    global globalVariables
-    
-    log("Saving the Replay Buffer...")
-
-    if globalVariables.game_title == globalVariables.default_recording_name:
-        log("Running get_hooked procedure to get current app title...")
-        check_if_hooked_and_update_title()
-
-    rec = Recording(is_replay=globalVariables.is_replay_active)
-    rec.create_new_folder()
-    thread = threading.Thread(target=move_media_file_asyncio, args=(rec,), daemon=True)
-    thread.start()
-
-
-def _handle_replay_buffer_stop() -> None:
-    globalVariables.is_replay_active = False
-    globalVariables.last_recording = None
-    log(f"Replay active? {'Yes' if globalVariables.is_replay_active else 'No'}")
-
-
-def _handle_screenshot_taken() -> None:
-    global globalVariables
-
-    if not globalVariables.source_uuid:
-        log("Reloading the signals...")
-        hooked_sh()  # Respond to selected source hooking to a window
-        log("Signals reloaded.")
-
-    log("Running get_hooked procedure to get current app title...")
-    check_if_hooked_and_update_title()
-
-    log("User took the screenshot...")
-
-    screenshot = Screenshot()
-    screenshot.create_new_folder()
-    thread = threading.Thread(target=move_media_file_asyncio, args=(screenshot,), daemon=True)
-    thread.start()
-
-    
-def _handle_scene_collection_change() -> None:
-    global globalVariables
-    
-    log("Scene Collection changing detected, freeing globals to avoid issues...")
-    globalVariables.unload_func()
-
-    if obs.obs_frontend_recording_active():
-        log("Stopping recording...")
-        obs.obs_frontend_recording_stop()
-
-    if obs.obs_frontend_replay_buffer_active():
-        log("Stopping replay...")
-        obs.obs_frontend_replay_buffer_stop()
-
-
-# EVENT HANDLERS
-
-def _build_event_handlers(enable_replay_organization: bool, enable_screenshot_organization: bool) -> dict:
-    handlers = {
-        obs.OBS_FRONTEND_EVENT_RECORDING_STARTED: _handle_recording_start,
-        obs.OBS_FRONTEND_EVENT_RECORDING_STOPPED: _handle_recording_stop,
-        obs.OBS_FRONTEND_EVENT_SCENE_COLLECTION_CHANGING: _handle_scene_collection_change,
-    }
-    
-    if enable_replay_organization:
-        handlers[obs.OBS_FRONTEND_EVENT_REPLAY_BUFFER_STARTED] = _handle_replay_buffer_start
-        handlers[obs.OBS_FRONTEND_EVENT_REPLAY_BUFFER_SAVED] = _handle_replay_buffer_save
-        handlers[obs.OBS_FRONTEND_EVENT_REPLAY_BUFFER_STOPPED] = _handle_replay_buffer_stop
-        
-    if enable_screenshot_organization:
-        handlers[obs.OBS_FRONTEND_EVENT_SCREENSHOT_TAKEN] = _handle_screenshot_taken
-        
-    return handlers
-          
-    
-def global_event_handler(event: int) -> None:
-    """Single dispatcher for all OBS frontend events"""
-
-    if handler := EVENT_HANDLERS.get(event):
-        handler()
-        
-
-# PROCEDURES
-
-def check_if_hooked_and_update_title():
-    """Function checks if source selected by user is hooked to any window and takes the title of hooked window
-
-    Raises:
-        TypeError: Only triggers when sourceUUID is None and causes the title to reset to defaultRecordingName
-    """
-    global globalVariables
-
-    if globalVariables.source_uuid is None:
-        log("Source UUID is empty. Defaulting to 'Manual Recording'")
-        globalVariables.game_title = globalVariables.default_recording_name
-        return
-
-    calldata = get_hooked(globalVariables.source_uuid)
-    log("Checking if source is hooked to any window...")
-    if calldata is not None:
-        if not gh_is_hooked(calldata):
-            obs.calldata_destroy(calldata)
-            globalVariables.game_title = globalVariables.default_recording_name
-            log("Call data was empty, using default name for un-captured windows...")
-            return
-        log("Hooked!")
-        try:
-            globalVariables.game_title = gh_title(calldata)
-        except TypeError:
-            log("Failed to get title, using default name - restart OBS or captured app.")
-            globalVariables.game_title = globalVariables.default_recording_name
-        log(f"Current game title: {globalVariables.game_title}")
-
-
-def get_hooked(uuid: str) -> object:
-    source = obs.obs_get_source_by_uuid(uuid)
-    cd = obs.calldata_create()
-    ph = obs.obs_source_get_proc_handler(source)
-    obs.proc_handler_call(ph, "get_hooked", cd)
-    obs.obs_source_release(source)
-    return cd
-
-
-def gh_is_hooked(calldata: object) -> bool:
-    return obs.calldata_bool(calldata, "hooked")
-
-
-def gh_title(calldata: object) -> str:
-    return obs.calldata_string(calldata, "title")
 
 
 # OBS FUNCTIONS
+
 
 def check_updates_press():
     print("Checking for updates...")
 
 
-def script_load(settings):
-    # Loading object of class holding global variables
-    global globalVariables
-    globalVariables = GlobalVariables()
+def frontend_event_callback(event):
+    global core
 
-    # Validate globalVariables is initialized
-    if globalVariables is None:
-        log("Error: globalVariables not initialized.")
-        return
-
-    # Loading in Signals
-    file_changed_sh(recreate=True)  # Respond to splitting the recording (ex. automatic recording split)
-
-    # Loading in Frontend events
-    obs.obs_frontend_add_event_callback(global_event_handler)
-    
-
-def script_defaults(settings):
-    obs.obs_data_set_default_string(settings, "default_folder_name_text", "Manual Recording")
-    obs.obs_data_set_default_bool(settings, "title_before_bool", False)
-    obs.obs_data_set_default_bool(settings, "organize_replay_bool", True)
-    obs.obs_data_set_default_bool(settings, "organize_screenshots_bool", True)
+    if core is not None:
+        core.dispatchEvent(event)
 
 
 def script_update(settings):
-    global globalVariables
-    global EVENT_HANDLERS
+    global core
 
-    # Fetching the Settings
-    globalVariables.apply_config(obs.obs_data_get_bool(settings, "title_before_bool"), 
-                                 obs.obs_data_get_string(settings, "default_folder_name_text"))
+    if core is not None:
+        core.shutdown()
 
-    EVENT_HANDLERS = _build_event_handlers(enable_replay_organization = obs.obs_data_get_bool(settings, "organize_replay_bool"),
-                                           enable_screenshot_organization = obs.obs_data_get_bool(settings, "organize_screenshots_bool"))
-    
-    log("(script_update) Updated the settings!\n")
+    properties = RecORDERProperties(
+        game_title_prefix=obs.obs_data_get_bool(settings, "title_as_prefix"),
+        enable_replay_organization=obs.obs_data_get_bool(settings, "enable_replay_organization"),
+        enable_screenshot_organization=obs.obs_data_get_bool(
+            settings, "enable_screenshot_organization"
+        ),
+        fallback_window_title=obs.obs_data_get_string(settings, "fallback_window_title"),
+    )
+
+    core = RecORDER(properties)
+
+    obs.obs_frontend_add_event_callback(frontend_event_callback)
+
+    print("[RecORDER] Configuration updated and orchestrator initialized!")
+
+
+def script_defaults(settings):
+    obs.obs_data_set_default_string(settings, "fallback_window_title", "Any Recording")
+    obs.obs_data_set_default_bool(settings, "title_as_prefix", False)
+    obs.obs_data_set_default_bool(settings, "enable_replay_organization", True)
+    obs.obs_data_set_default_bool(settings, "enable_screenshot_organization", True)
 
 
 def script_unload():
-    # Fetching global variables
-    global globalVariables
-    global file_changed_sh_ref
+    global core
 
-    # Clear events
-    obs.obs_frontend_remove_event_callback(global_event_handler)
+    if core is not None:
+        core.shutdown()
+        core = None
 
-    # Clear global variables
-    globalVariables.unload_func()
+    obs.obs_frontend_remove_event_callback(frontend_event_callback)
+    print("[RecORDER] Script unloaded sucessfully!")
 
-    # Clear signal for automatic splitting function
-    file_changed_sh(recreate=False)
-    
 
 def has_video_output(source) -> bool:
     """Check if source has video output capability"""
     flags = obs.obs_source_get_output_flags(source)
     return (flags & obs.OBS_SOURCE_VIDEO) != 0
 
+
 def is_display_capture(source) -> bool:
     """Check if source is a Display Capture"""
     return obs.obs_source_get_id(source) == SOURCE_TYPES.DISPLAY_CAPTURE
-    
-    
+
+
 def script_properties():
     props = obs.obs_properties_create()
 
     # Default folder name text input
     obs.obs_properties_add_text(
-        props, "default_folder_name_text", "Default folder name: ", obs.OBS_TEXT_DEFAULT)
+        props, "fallback_window_title", "Default folder name: ", obs.OBS_TEXT_DEFAULT
+    )
 
     # Organize replay buffer checkmark
     organize_replay = obs.obs_properties_add_bool(
-        props, "organize_replay_bool", "Organize Replay Buffer recordings ")
+        props, "enable_replay_organization", "Organize Replay Buffer recordings "
+    )
     obs.obs_property_set_long_description(
         organize_replay,
-        "Check the box, if you want to have replays organized into subfolders, uncheck to disable"
+        "Check the box, if you want to have replays organized into subfolders, uncheck to disable",
     )
-    
+
     # Organize screenshots checkmark
     organize_screenshots = obs.obs_properties_add_bool(
-        props, "organize_screenshots_bool", "Organize screenshots ")
+        props, "enable_screenshot_organization", "Organize screenshots "
+    )
     obs.obs_property_set_long_description(
         organize_screenshots,
-        "Check the box, if you want to have screenshots organized into subfolders, uncheck to disable"
+        "Check the box, if you want to have screenshots organized into subfolders, uncheck to disable",
     )
-    
+
     # Title checkmark
     title_as_prefix = obs.obs_properties_add_bool(
-        props, "title_before_bool", "Add game name as a file prefix "
+        props, "title_as_prefix", "Add game name as a file prefix "
     )
     obs.obs_property_set_long_description(
         title_as_prefix,
-        "Check the box, if you want to have title of hooked application appended as a prefix to the recording, else uncheck"
+        "Check the box, if you want to have title of hooked application appended as a prefix to the recording, else uncheck",
     )
 
     # Check for updates button
     check_updates = obs.obs_properties_add_button(
-        props,
-        "check_updates_button",
-        "Check for updates",
-        check_updates_press
+        props, "check_updates_button", "Check for updates", check_updates_press
     )
     obs.obs_property_set_modified_callback(check_updates, check_updates_callback)
-    
-    update_text = obs.obs_properties_add_text(
-        props, 
-        "version_info",
-        "", 
-        obs.OBS_TEXT_INFO
-    )
-    
+
+    update_text = obs.obs_properties_add_text(props, "version_info", "", obs.OBS_TEXT_INFO)
+
     obs.obs_property_set_visible(update_text, False)
-    
+
     return props
 
 
