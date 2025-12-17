@@ -4,11 +4,9 @@ import obspython as obs  # type: ignore
 
 # Author: oxypatic! (61553947+padiix@users.noreply.github.com)
 
-# Table of capturing video source names
-
 
 class CONST:
-    VERSION = "2.2"
+    VERSION = "3.0"
     PYTHON_VERSION = sys.version_info
     TIME_TO_WAIT = 0.5
 
@@ -31,6 +29,12 @@ class SOURCE_TYPES:
     GAME_CAPTURE = "game_capture"
     WINDOW_CAPTURE = "window_capture"
     DISPLAY_CAPTURE = "monitor_capture"
+
+
+class ORGANIZATION_MODES:
+    BASIC = "basic"
+    DATE_BASED = "date_based"
+    # SCENE_BASED = "scene_based"
 
 
 # Version check
@@ -56,13 +60,13 @@ class RecORDERProperties:
         enable_replay_organization: bool,
         enable_screenshot_organization: bool,
         fallback_window_title: str = OBS_NAMES.DEFAULT_NOT_CAPTURED_NAME,
-        source_names: list[str] = ["Game Capture", "Window Capture"],
+        selected_source_uuid: str = None,
+        selected_organization_mode: str = "basic",
     ):
         self.fallback_window_title: str = fallback_window_title
-        self.source_names: list[str] = (
-            source_names  # IDEA: Init with selected source by user, which returns UUID of the source (make sure that all sources are hookable)
-        )
-        #       For the current situation, just assume the sources are named Game/Window Capture
+        self.selected_source_uuid: str = selected_source_uuid
+        self.selected_organization_mode: str = selected_organization_mode
+
         self.game_title_prefix: bool = game_title_prefix
         self.enable_replay_organization: bool = enable_replay_organization
         self.enable_screenshot_organization: bool = enable_screenshot_organization
@@ -76,7 +80,7 @@ class HookState:
     """
 
     def __init__(self, fallback_window_title: str = OBS_NAMES.DEFAULT_NOT_CAPTURED_NAME):
-        self.source_uuid: Optional[str] = None  # TODO: Init of these parameters probably required
+        self.source_uuid: Optional[str] = None
         self.window_title: Optional[str] = None
         self.fallback_window_title: str = fallback_window_title
         self.hooked_signal_handler: Optional[object] = None
@@ -144,42 +148,29 @@ class HookedHandler:
         self.properties: RecORDERProperties = properties
         self.state: HookState = state
 
-    def discoverAndConnect(self) -> bool:
+    def connect(self) -> bool:
         """
-        Main entry point for finding hook-able source.
+        Main entry point for connecting to hook-able source.
 
-        Orchestrates the entire discovery process and returns whether we were sucessful.
+        Orchestrates the entire connection process and returns whether we were sucessful.
         """
 
         try:
-            current_scene_source = obs.obs_frontend_get_current_scene()
-            if current_scene_source is None:
-                print("[HookedHandler] No active scene found. Weird?")
+            source_uuid = self.properties.selected_source_uuid
+            found_source = obs.obs_get_source_by_uuid(source_uuid)
+
+            if found_source is None:
+                print("[HookedHandler] Could not find relevant source in current scene")
                 return False
 
-            try:
-                current_scene = obs.obs_scene_from_source(current_scene_source)
-                scene_items = obs.obs_scene_enum_items(current_scene)
+            self.__establishHookConnection(found_source, source_uuid)
+            print(
+                f"[HookedHandler] Sucessfully connected to source: {obs.obs_source_get_name(found_source)}"
+            )
+            return True
 
-                found_source = self.__searchScene(scene_items)
-
-                if found_source is None:
-                    print("[HookedHandler] Could not find relevant source in current scene")
-                    print(f"[HookedHandler] Looking for one of {self.properties.source_names}")
-                    return False
-
-                self.__establishHookConnection(found_source)
-                # print(
-                #     f"[HookedHandler] Sucessfully connected to source: {obs.obs_source_get_name(found_source)}"
-                # )
-                return True
-
-            finally:
-                obs.obs_source_release(current_scene_source)
-
-        except Exception as e:
-            print(f"[HookedHandler] Discovery failed with error: {e}")
-            return False
+        finally:
+            obs.obs_source_release(found_source)
 
     def disconnect(self) -> None:
         """Clean-up signal connection when we're done or switching scene collections."""
@@ -191,22 +182,11 @@ class HookedHandler:
             )
             self.state.hooked_signal_handler = None
 
-    def __searchScene(self, scene_items: list) -> Optional[object]:
-        """Iterate through items located in the scene and look for source with the same name as the ones configured by user."""
-        for item in scene_items:
-            source = obs.obs_sceneitem_get_source(item)
-            source_name = obs.obs_source_get_name(source)
-
-            if source_name in self.properties.source_names:
-                return source
-
-        return None
-
-    def __establishHookConnection(self, source: object) -> None:
+    def __establishHookConnection(self, source: object, source_uuid: str) -> None:
         """Connect the right source to "hooked" signal, so we get notifications whenever it hooks into a new game window."""
         # TODO: Whip up a file creating class, that holds information about scene-to-selected_source info.
         #       It should go to the level of scene collections, to make sure that the user always have settings he chose.
-        self.state.source_uuid = obs.obs_source_get_uuid(source)
+        self.state.source_uuid = source_uuid
 
         signal_handler = obs.obs_source_get_signal_handler(source)
         obs.signal_handler_connect(
@@ -357,14 +337,11 @@ class TitleResolver:
 
 
 class MediaFileOrganizer:
-    def __init__(self, title_resolver: TitleResolver):
+    def __init__(
+        self, title_resolver: TitleResolver, organization_mode: str = ORGANIZATION_MODES.BASIC
+    ):
+        self.organization_mode: str = organization_mode
         self.title_resolver: TitleResolver = title_resolver
-
-        # IDEA: Add options of organization
-        #    Example:
-        #   1. Basic organization (what we have now)
-        #   2. Date-based organization (if user chooses this, it will make the script move files based on the date - for ex. YY/MM/DD)
-        #   3. Recording container organization? Scene/Source-based organization?
 
     def processRecording(self, file_path: str) -> None:
         """Process a recording - determine the window title, create folder stucture (if not created),
@@ -428,14 +405,24 @@ class MediaFileOrganizer:
     def __calculateNewPath(self, file_path: str, game_title: str, media_type: str) -> None:
         """Determine new path for the file based on game title and media type."""
         import os
+        from datetime import datetime
 
         directory = os.path.dirname(file_path)
         filename = os.path.basename(file_path)
 
-        if media_type == MEDIAFILE_TYPES.RECORDING:
-            new_directory = os.path.join(directory, game_title)
-        else:
-            new_directory = os.path.join(directory, game_title, media_type)
+        creation_date_unix = os.path.getctime(file_path)
+        creation_date = datetime.fromtimestamp(creation_date_unix).strftime("%y-%m-%d")
+
+        if self.organization_mode == ORGANIZATION_MODES.BASIC:
+            if media_type == MEDIAFILE_TYPES.RECORDING:
+                new_directory = os.path.join(directory, game_title)
+            else:
+                new_directory = os.path.join(directory, game_title, media_type)
+        elif self.organization_mode == ORGANIZATION_MODES.DATE_BASED:
+            if media_type == MEDIAFILE_TYPES.RECORDING:
+                new_directory = os.path.join(directory, game_title, creation_date)
+            else:
+                new_directory = os.path.join(directory, game_title, media_type, creation_date)
 
         return os.path.join(new_directory, filename)
 
@@ -601,7 +588,10 @@ class RecORDER:
             properties=self.__properties, state=self.__hook_state
         )
         self.title_resolver: TitleResolver = TitleResolver(state=self.__hook_state)
-        self.organizer: MediaFileOrganizer = MediaFileOrganizer(title_resolver=self.title_resolver)
+        self.organizer: MediaFileOrganizer = MediaFileOrganizer(
+            organization_mode=self.__properties.selected_organization_mode,
+            title_resolver=self.title_resolver,
+        )
         self.recording_manager: RecordingManager = RecordingManager(
             state=self.__recording_state, organizer=self.organizer
         )
@@ -643,7 +633,7 @@ class RecORDER:
         """Helper method that ensures we've a hooked window in hook-able source before we start processing any media. Called at the end of each session type."""
         if not self.__hook_state.isSourceDiscovered():
             # print("[RecORDER Core] Discovering hook-able source...")
-            self.hooked_handler.discoverAndConnect()
+            self.hooked_handler.connect()
 
     # ========================================================================
     # EVENT HANDLERS - These are the methods that respond to OBS events
@@ -655,7 +645,7 @@ class RecORDER:
 
         if not self.__hook_state.isSourceDiscovered():
             # print("[RecORDER Core] Discovering hook-able source for upcoming splits.")
-            self.hooked_handler.discoverAndConnect()
+            self.hooked_handler.connect()
 
         self.recording_manager.start()
 
@@ -665,7 +655,7 @@ class RecORDER:
 
         if not self.__hook_state.isWindowHooked():
             # print("[RecORDER Core] Ensuring source is discovered and hooked...")
-            self.hooked_handler.discoverAndConnect()
+            self.hooked_handler.connect()
 
         self.recording_manager.stop()
 
@@ -803,6 +793,8 @@ def script_update(settings):
         core.shutdown()
 
     properties = RecORDERProperties(
+        selected_source_uuid=obs.obs_data_get_string(settings, "source_selector"),
+        selected_organization_mode=obs.obs_data_get_string(settings, name="organization_mode"),
         game_title_prefix=obs.obs_data_get_bool(settings, "title_as_prefix"),
         enable_replay_organization=obs.obs_data_get_bool(settings, "enable_replay_organization"),
         enable_screenshot_organization=obs.obs_data_get_bool(
@@ -820,6 +812,7 @@ def script_update(settings):
 
 def script_defaults(settings):
     obs.obs_data_set_default_string(settings, "fallback_window_title", "Any Recording")
+    obs.obs_data_set_default_string(settings, "organization_mode", "basic")
     obs.obs_data_set_default_bool(settings, "title_as_prefix", False)
     obs.obs_data_set_default_bool(settings, "enable_replay_organization", True)
     obs.obs_data_set_default_bool(settings, "enable_screenshot_organization", True)
@@ -847,13 +840,82 @@ def is_display_capture(source) -> bool:
     return obs.obs_source_get_id(source) == SOURCE_TYPES.DISPLAY_CAPTURE
 
 
+def populate_source_selector(source_selector):
+    """Dynamically populate source selector with hookable sources from the current scene."""
+    try:
+        current_scene_source = obs.obs_frontend_get_current_scene()
+        if current_scene_source is None:
+            obs.obs_property_list_add_string(source_selector, "No active scene", "")
+            return
+
+        try:
+            current_scene = obs.obs_scene_from_source(current_scene_source)
+            scene_items = obs.obs_scene_enum_items(current_scene)
+
+            found_any = False
+            for item in scene_items:
+                source = obs.obs_sceneitem_get_source(item)
+                source_name = obs.obs_source_get_name(source)
+                source_uuid = obs.obs_source_get_uuid(source)
+
+                # Only add sources with video ouput
+                if has_video_output(source):
+                    # Check if the source is a display capture - if it is, then it DOES NOT have a hook events we need (since it's hooking to a display, not window)
+                    if is_display_capture(source):
+                        obs.obs_property_list_add_string(
+                            source_selector, f"{source_name} [Not supported!]", source_uuid
+                        )
+                    else:
+                        obs.obs_property_list_add_string(source_selector, source_name, source_uuid)
+                    found_any = True
+
+            if not found_any:
+                obs.obs_property_list_add_string(source_selector, "No hookable sources found", "")
+
+        finally:
+            obs.obs_source_release(current_scene_source)
+
+    except Exception as e:
+        print(f"[script_properties] Failed to populate source selector: {e}")
+        obs.obs_property_list_add_string(source_selector, "Error loading sources", "")
+
+
+def populate_organization_mode(organization_mode):
+    obs.obs_property_list_add_string(organization_mode, "Basic", ORGANIZATION_MODES.BASIC)
+    obs.obs_property_list_add_string(
+        organization_mode, "Group by Date", ORGANIZATION_MODES.DATE_BASED
+    )
+    # obs.obs_property_list_add_string(organization_mode, "Scene-based", "scene_based")
+
+
 def script_properties():
     props = obs.obs_properties_create()
 
     # Default folder name text input
     obs.obs_properties_add_text(
-        props, "fallback_window_title", "Default folder name: ", obs.OBS_TEXT_DEFAULT
+        props, "fallback_window_title", "Fallback folder name: ", obs.OBS_TEXT_DEFAULT
     )
+
+    # Source selecting property for easier configuration for user
+    # IDEA: Make the script remember on which scene was which source picked to ease the use of script!
+    source_selector = obs.obs_properties_add_list(
+        props,
+        "source_selector",
+        "Monitored source: ",
+        obs.OBS_COMBO_TYPE_LIST,
+        obs.OBS_COMBO_FORMAT_STRING,
+    )
+    populate_source_selector(source_selector)
+
+    # Organization modes for user customization of sorting
+    organization_mode = obs.obs_properties_add_list(
+        props,
+        "organization_mode",
+        "Organization mode: ",
+        obs.OBS_COMBO_TYPE_LIST,
+        obs.OBS_COMBO_FORMAT_STRING,
+    )
+    populate_organization_mode(organization_mode)
 
     # Organize replay buffer checkmark
     organize_replay = obs.obs_properties_add_bool(
@@ -907,12 +969,6 @@ def script_description():
         Created and maintained by: oxypatic
         </div>
         
-        <div style="font-weight: bold; text-decoration: underline; font-size: 12pt; color: red;">
-        Important:
-        </div>
-        <div style="font-size: 11pt; color: red;">
-        Make sure your <b>Game Capture/Window Capture</b> source name is inside <b>'SOURCE_NAMES'</b>!
-        </div>
         <div style="font-weight: bold; font-size: 12pt; margin-top: 25px;">
         Settings:
         </div>
