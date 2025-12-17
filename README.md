@@ -34,7 +34,7 @@ The script recreates the organization of NVIDIA Shadow Play, <br>which placed al
 
 * Script only works with OBS in version 29.0.0 or higher
 * Script requires only a **Python 3.11 version** or higher
-> [!INFO]
+> [!IMPORTANT]
 > (**3.12** is the highest the OBS 31.0.3 supports for now)
 > [Possibly outdated information]
    * No need for tkinter or anything additionally, minimal python works
