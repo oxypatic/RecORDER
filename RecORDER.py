@@ -786,6 +786,14 @@ def frontend_event_callback(event):
         core.dispatchEvent(event)
 
 
+def script_load(settings):
+    global core
+
+    if core is not None:
+        obs.obs_frontend_remove_event_callback(frontend_event_callback)
+    obs.obs_frontend_add_event_callback(frontend_event_callback)
+
+
 def script_update(settings):
     global core
     
@@ -804,8 +812,6 @@ def script_update(settings):
     )
 
     core = RecORDER(properties)
-
-    obs.obs_frontend_add_event_callback(frontend_event_callback)
 
     print("[RecORDER] Configuration updated and orchestrator initialized!")
 
