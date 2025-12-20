@@ -339,7 +339,9 @@ class TitleResolver:
 class MediaFileOrganizer:
     def __init__(
         self, title_resolver: TitleResolver, organization_mode: str = AVAILABLE_ORGANIZATION_MODES.BASIC
+        self, title_resolver: TitleResolver, organization_mode: str = AVAILABLE_ORGANIZATION_MODES.BASIC, title_as_prefix: bool = False
     ):
+        self.title_as_prefix: bool = title_as_prefix
         self.organization_mode: str = organization_mode
         self.title_resolver: TitleResolver = title_resolver
 
@@ -408,7 +410,11 @@ class MediaFileOrganizer:
         from datetime import datetime
 
         directory = os.path.dirname(file_path)
-        filename = os.path.basename(file_path)
+        
+        if self.title_as_prefix:
+            filename = f"{game_title} - {os.path.basename(file_path)}"
+        else:
+            filename = os.path.basename(file_path)
 
         creation_date_unix = os.path.getctime(file_path)
         creation_date = datetime.fromtimestamp(creation_date_unix).strftime("%y-%m-%d")
@@ -589,6 +595,7 @@ class RecORDER:
         )
         self.title_resolver: TitleResolver = TitleResolver(state=self.__hook_state)
         self.organizer: MediaFileOrganizer = MediaFileOrganizer(
+            title_as_prefix=self.__properties.game_title_prefix,
             organization_mode=self.__properties.selected_organization_mode,
             title_resolver=self.title_resolver,
         )
