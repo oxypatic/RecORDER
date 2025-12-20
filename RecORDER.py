@@ -835,15 +835,19 @@ def script_unload():
     print("[RecORDER] Script unloaded sucessfully!")
 
 
-def has_video_output(source) -> bool:
-    """Check if source has video output capability"""
-    flags = obs.obs_source_get_output_flags(source)
-    return (flags & obs.OBS_SOURCE_VIDEO) != 0
+def has_hooked_event(source) -> bool:
+    """Check if source has hooked event capability"""
+    return (obs.obs_source_get_id(source) == SUPPORTED_SOURCE_TYPES.GAME_CAPTURE or obs.obs_source_get_id(source) == SUPPORTED_SOURCE_TYPES.WINDOW_CAPTURE)
 
 
 def is_display_capture(source) -> bool:
     """Check if source is a Display Capture"""
     return obs.obs_source_get_id(source) == SUPPORTED_SOURCE_TYPES.DISPLAY_CAPTURE
+
+
+def visible_in_preview(source) -> bool:
+    """Check if source is visible in the preview"""
+    return obs.obs_source_showing(source)
 
 
 def populate_source_selector(source_selector):
@@ -864,8 +868,8 @@ def populate_source_selector(source_selector):
                 source_name = obs.obs_source_get_name(source)
                 source_uuid = obs.obs_source_get_uuid(source)
 
-                # Only add sources with video ouput
-                if has_video_output(source):
+                # Only add sources with video ouput and are visible in preview
+                if has_hooked_event(source) and visible_in_preview(source):
                     # Check if the source is a display capture - if it is, then it DOES NOT have a hook events we need (since it's hooking to a display, not window)
                     if is_display_capture(source):
                         obs.obs_property_list_add_string(
