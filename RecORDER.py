@@ -137,31 +137,32 @@ class ReplayState:
 # SCRIPT CONFIGURATION MANAGEMENT
 # ============================================================================
 
+
 class ConfigManager:
     import os
     import json
-    
+
     def __init__(self, config_path: str):
         self.__config_path: str = config_path
         self.config: dict = self.__loadConfig()
-        
+
     def __loadConfig(self) -> dict:
         """Load script configuration from JSON file, return empty dictionary if it doesn't exist."""
         if self.os.path.exists(self.__config_path):
-            with open(self.__config_path, 'r') as config_file:
+            with open(self.__config_path, "r") as config_file:
                 return self.json.load(config_file)
         return dict()
-    
+
     def __saveConfg(self) -> None:
-        """Write current configuration back to JSON file."""    
+        """Write current configuration back to JSON file."""
         self.os.makedirs(self.os.path.dirname(self.__config_path), exist_ok=True)
-        with open(self.__config_path, 'w') as config_file:
+        with open(self.__config_path, "w") as config_file:
             self.json.dump(self.config, config_file, indent=2, sort_keys=True)
-    
+
     def saveSourceForScene(self, scene_collection: str, scene_name: str, source_uuid: str) -> None:
         """
         Save mapping: scene_collection -> scene_name -> source_uuid
-        
+
         Called when user selects a source in properties.
         """
         if scene_collection not in self.config:
@@ -175,10 +176,11 @@ class ConfigManager:
         Returns None if no mapping exists
         """
         return self.config.get(scene_collection, {}).get(scene_name)
-    
+
     def getAllScenesInCollection(self, scene_collection: str) -> dict:
         """Get all scene -> source mappings for a collection"""
         return self.config.get(scene_collection, {})
+
 
 # ============================================================================
 # SOURCE DISCOVERY AND MANAGEMENT
@@ -252,7 +254,9 @@ class HookedHandler:
         try:
             raw_title = obs.calldata_string(calldata, OBS_EVENT_NAMES.TITLE_CALLDATA_NAME_WINDOWS)
             if raw_title is None:
-                raw_title = obs.calldata_string(calldata, OBS_EVENT_NAMES.TITLE_CALLDATA_NAME_XCOMPOSITE)
+                raw_title = obs.calldata_string(
+                    calldata, OBS_EVENT_NAMES.TITLE_CALLDATA_NAME_XCOMPOSITE
+                )
 
             if raw_title:
                 clean_title = self.__sanitizeTitle(raw_title)
@@ -321,7 +325,9 @@ class TitleResolver:
 
             raw_title = obs.calldata_string(calldata, OBS_EVENT_NAMES.TITLE_CALLDATA_NAME_WINDOWS)
             if raw_title is None:
-                raw_title = obs.calldata_string(calldata, OBS_EVENT_NAMES.TITLE_CALLDATA_NAME_XCOMPOSITE)
+                raw_title = obs.calldata_string(
+                    calldata, OBS_EVENT_NAMES.TITLE_CALLDATA_NAME_XCOMPOSITE
+                )
 
             if raw_title:
                 clean_title = self.__sanitizeTitle(raw_title)
@@ -390,7 +396,10 @@ class TitleResolver:
 
 class MediaFileOrganizer:
     def __init__(
-        self, title_resolver: TitleResolver, organization_mode: str = AVAILABLE_ORGANIZATION_MODES.BASIC, title_as_prefix: bool = False
+        self,
+        title_resolver: TitleResolver,
+        organization_mode: str = AVAILABLE_ORGANIZATION_MODES.BASIC,
+        title_as_prefix: bool = False,
     ):
         self.title_as_prefix: bool = title_as_prefix
         self.organization_mode: str = organization_mode
@@ -404,7 +413,9 @@ class MediaFileOrganizer:
         # print(f"[MediaOrganizer] Processing recording: {file_path}")
         # print(f"[MediaOrganizer] Window title: {game_title}")
 
-        self.__organizeFileAsync(file_path, game_title, media_type=SUPPORTED_MEDIAFILE_TYPES.RECORDING)
+        self.__organizeFileAsync(
+            file_path, game_title, media_type=SUPPORTED_MEDIAFILE_TYPES.RECORDING
+        )
 
     def processReplay(self, file_path: str) -> None:
         """Process a saved replay buffer file. Works in similar way to processRecording()"""
@@ -422,7 +433,9 @@ class MediaFileOrganizer:
         # print(f"[MediaOrganizer] Processing screenshot: {file_path}")
         # print(f"[MediaOrganizer] Window title: {game_title}")
 
-        self.__organizeFileAsync(file_path, game_title, media_type=SUPPORTED_MEDIAFILE_TYPES.SCREENSHOT)
+        self.__organizeFileAsync(
+            file_path, game_title, media_type=SUPPORTED_MEDIAFILE_TYPES.SCREENSHOT
+        )
 
     def __organizeFileAsync(self, file_path: str, game_title: str, media_type: str) -> None:
         """
@@ -461,7 +474,7 @@ class MediaFileOrganizer:
         from datetime import datetime
 
         directory = os.path.dirname(file_path)
-        
+
         if self.title_as_prefix:
             filename = f"{game_title} - {os.path.basename(file_path)}"
         else:
@@ -665,7 +678,7 @@ class RecORDER:
             obs.OBS_FRONTEND_EVENT_RECORDING_STARTED: self.__handleRecordingStart,
             obs.OBS_FRONTEND_EVENT_RECORDING_STOPPED: self.__handleRecordingStop,
             obs.OBS_FRONTEND_EVENT_SCENE_COLLECTION_CHANGED: self.__handleSceneCollectionChange,
-            obs.OBS_FRONTEND_EVENT_SCENE_CHANGED: self.__handleSceneChange
+            obs.OBS_FRONTEND_EVENT_SCENE_CHANGED: self.__handleSceneChange,
         }
 
         if self.__properties.enable_replay_organization:
@@ -765,40 +778,44 @@ class RecORDER:
         self.__replay_state.reset()
 
         print("[RecORDER Core] Cleanup complete")
-        
+
     def __handleSceneChange(self) -> None:
         """Scene changed - look up saved source from config and reconnect"""
         print("[RecORDER Core] Scene changed - looking up configured source")
-        
+
         try:
             # Get current scene and collection info
             scene_collection_name = obs.obs_frontend_get_current_scene_collection()
             current_scene = obs.obs_frontend_get_current_scene()
             scene_name = obs.obs_source_get_name(current_scene)
             obs.obs_source_release(current_scene)
-            
+
             # Look up saved source UUID from config
-            saved_source_uuid = self.__config_manager.getSourceForScene(scene_collection_name, scene_name)
-            
+            saved_source_uuid = self.__config_manager.getSourceForScene(
+                scene_collection_name, scene_name
+            )
+
             if saved_source_uuid:
                 # Update properties with the saved source
                 self.__properties.selected_source_uuid = saved_source_uuid
-                
+
                 # Disconnect old handler
                 self.hooked_handler.disconnect()
                 self.__hook_state.reset()
-                
+
                 # Reconnect with new source
                 if self.hooked_handler.connect():
-                    print(f"[RecORDER Core] Reconnected to saved source for current scene: {scene_name}")
+                    print(
+                        f"[RecORDER Core] Reconnected to saved source for current scene: {scene_name}"
+                    )
                 else:
                     print("[RecORDER Core] Could not reconnect to saved source")
             else:
-                print (f"[RecORDER Core] No saved source mapping for scene: {scene_name}")
-                
+                print(f"[RecORDER Core] No saved source mapping for scene: {scene_name}")
+
         except Exception as e:
             print(f"[RecORDER Core] Error handling scene change: {e}")
-        
+
     def shutdown(self) -> None:
         """Called when script is being unloaded. Cleans up all connections and state to prevent memory leaks/ crashes."""
         print("[RecORDER Core] Shutting down")
@@ -822,6 +839,7 @@ def log(message):
 def get_config_path() -> str:
     """Get path to config file"""
     import os
+
     script_dir = os.path.dirname(os.path.abspath(__file__))
     return os.path.join(script_dir, "RecORDERConfig.json")
 
@@ -892,34 +910,34 @@ def script_load(settings):
     # Initialize the ConfigManager
     config_path = get_config_path()
     config_manager = ConfigManager(config_path)
-    
+
     # Initialization of events neccessary in organization
     if core is not None:
         obs.obs_frontend_remove_event_callback(frontend_event_callback)
     obs.obs_frontend_add_event_callback(frontend_event_callback)
-    
+
 
 def script_update(settings):
     global core
     global config_manager
-    
+
     # Recreate the RecORDER object to avoid issues
     if core is not None:
         core.shutdown()
-    
+
     # ConfigManager part
     # Get scene_collection_name and scene_name
     scene_collection_name = obs.obs_frontend_get_current_scene_collection()
     current_scene = obs.obs_frontend_get_current_scene()
     scene_name = obs.obs_source_get_name(current_scene)
     obs.obs_source_release(current_scene)
-    
+
     # Get source_uuid and save it
 
     selected_source_uuid = obs.obs_data_get_string(settings, "source_selector")
-    
+
     config_manager.saveSourceForScene(scene_collection_name, scene_name, selected_source_uuid)
-    
+
     # RecORDER part
     properties = RecORDERProperties(
         selected_source_uuid=selected_source_uuid,
@@ -958,12 +976,10 @@ def script_unload():
 
 def has_hooked_event(source) -> bool:
     """Check if source has hooked event capability"""
-    return (obs.obs_source_get_id(source) == SUPPORTED_SOURCE_TYPES.GAME_CAPTURE or obs.obs_source_get_id(source) == SUPPORTED_SOURCE_TYPES.WINDOW_CAPTURE)
-
-
-def is_display_capture(source) -> bool:
-    """Check if source is a Display Capture"""
-    return obs.obs_source_get_id(source) == SUPPORTED_SOURCE_TYPES.DISPLAY_CAPTURE
+    return (
+        obs.obs_source_get_id(source) == SUPPORTED_SOURCE_TYPES.GAME_CAPTURE
+        or obs.obs_source_get_id(source) == SUPPORTED_SOURCE_TYPES.WINDOW_CAPTURE
+    )
 
 
 def visible_in_preview(source) -> bool:
