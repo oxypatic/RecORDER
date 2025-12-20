@@ -1007,13 +1007,7 @@ def populate_source_selector(source_selector):
 
                 # Only add sources with video ouput and are visible in preview
                 if has_hooked_event(source) and visible_in_preview(source):
-                    # Check if the source is a display capture - if it is, then it DOES NOT have a hook events we need (since it's hooking to a display, not window)
-                    if is_display_capture(source):
-                        obs.obs_property_list_add_string(
-                            source_selector, f"{source_name} [Not supported!]", source_uuid
-                        )
-                    else:
-                        obs.obs_property_list_add_string(source_selector, source_name, source_uuid)
+                    obs.obs_property_list_add_string(source_selector, source_name, source_uuid)
                     found_any = True
 
             if not found_any:
