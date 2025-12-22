@@ -2,7 +2,7 @@ import sys
 from typing import Awaitable, Optional
 import obspython as obs  # type: ignore
 
-# Author: oxypatic! (61553947+padiix@users.noreply.github.com)
+# Author: oxypatic! (61553947+oxypatic@users.noreply.github.com)
 
 
 class BASE_CONSTANTS:
@@ -42,9 +42,6 @@ class AVAILABLE_ORGANIZATION_MODES:
 
 if BASE_CONSTANTS.PYTHON_VERSION < (3, 11):
     print("Python version < 3.11, correct behaviour is not guaranteed!")
-
-
-# NEW CODE
 
 
 ## DATA
@@ -821,8 +818,6 @@ class RecORDER:
         print("[RecORDER Core] Shutting down")
         self.__handleSceneCollectionChange(True)  # Reuse the cleanup logic
 
-
-# END - NEW CODE
 
 core: Optional[RecORDER] = None
 
