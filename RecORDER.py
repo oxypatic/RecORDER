@@ -11,8 +11,16 @@ class BASE_CONSTANTS:
     TIME_TO_WAIT = 0.5
 
 
+class PROPERTY_NAMES:
+    FALLBACK_WINDOW_NAME = "fallback_window_title"
+    ORGANIZATION_MODE = "organization_mode"
+    TITLE_AS_PREFIX = "title_as_prefix"
+    ENABLE_REPLAY_ORGANIZATION = "enable_replay_organization"
+    ENABLE_SCREENSHOT_ORGANIZATION = "enable_screenshot_organization"
+    SOURCE_SELECTOR = "source_selector"
+
+
 class OBS_EVENT_NAMES:
-    DEFAULT_NOT_CAPTURED_NAME = "Unknown Game"
     HOOKED_SIGNAL_NAME = "hooked"
     TITLE_CALLDATA_NAME_WINDOWS = "title"
     TITLE_CALLDATA_NAME_XCOMPOSITE = "name"
@@ -57,7 +65,6 @@ class RecORDERProperties:
         game_title_prefix: bool,
         enable_replay_organization: bool,
         enable_screenshot_organization: bool,
-        fallback_window_title: str = OBS_EVENT_NAMES.DEFAULT_NOT_CAPTURED_NAME,
         selected_source_uuid: str = None,
         selected_organization_mode: str = "basic",
     ):
@@ -77,7 +84,7 @@ class HookState:
     Single source of truth for hook-related state.
     """
 
-    def __init__(self, fallback_window_title: str = OBS_EVENT_NAMES.DEFAULT_NOT_CAPTURED_NAME):
+    def __init__(self, fallback_window_title: str):
         self.source_uuid: Optional[str] = None
         self.window_title: Optional[str] = None
         self.fallback_window_title: str = fallback_window_title
@@ -936,13 +943,19 @@ def script_update(settings):
     # RecORDER part
     properties = RecORDERProperties(
         selected_source_uuid=selected_source_uuid,
-        selected_organization_mode=obs.obs_data_get_string(settings, name="organization_mode"),
-        game_title_prefix=obs.obs_data_get_bool(settings, "title_as_prefix"),
-        enable_replay_organization=obs.obs_data_get_bool(settings, "enable_replay_organization"),
-        enable_screenshot_organization=obs.obs_data_get_bool(
-            settings, "enable_screenshot_organization"
+        selected_organization_mode=obs.obs_data_get_string(
+            settings, name=PROPERTY_NAMES.ORGANIZATION_MODE
         ),
-        fallback_window_title=obs.obs_data_get_string(settings, "fallback_window_title"),
+        game_title_prefix=obs.obs_data_get_bool(settings, PROPERTY_NAMES.TITLE_AS_PREFIX),
+        enable_replay_organization=obs.obs_data_get_bool(
+            settings, PROPERTY_NAMES.ENABLE_REPLAY_ORGANIZATION
+        ),
+        enable_screenshot_organization=obs.obs_data_get_bool(
+            settings, PROPERTY_NAMES.ENABLE_SCREENSHOT_ORGANIZATION
+        ),
+        fallback_window_title=obs.obs_data_get_string(
+            settings, PROPERTY_NAMES.FALLBACK_WINDOW_NAME
+        ),
     )
 
     core = RecORDER(properties, config_manager)
@@ -951,11 +964,11 @@ def script_update(settings):
 
 
 def script_defaults(settings):
-    obs.obs_data_set_default_string(settings, "fallback_window_title", "Any Recording")
-    obs.obs_data_set_default_string(settings, "organization_mode", "basic")
-    obs.obs_data_set_default_bool(settings, "title_as_prefix", False)
-    obs.obs_data_set_default_bool(settings, "enable_replay_organization", True)
-    obs.obs_data_set_default_bool(settings, "enable_screenshot_organization", True)
+    obs.obs_data_set_default_string(settings, PROPERTY_NAMES.FALLBACK_WINDOW_NAME, "Any Recording")
+    obs.obs_data_set_default_string(settings, PROPERTY_NAMES.ORGANIZATION_MODE, "basic")
+    obs.obs_data_set_default_bool(settings, PROPERTY_NAMES.TITLE_AS_PREFIX, False)
+    obs.obs_data_set_default_bool(settings, PROPERTY_NAMES.ENABLE_REPLAY_ORGANIZATION, True)
+    obs.obs_data_set_default_bool(settings, PROPERTY_NAMES.ENABLE_SCREENSHOT_ORGANIZATION, True)
 
 
 def script_unload():
@@ -1030,14 +1043,15 @@ def script_properties():
 
     # Default folder name text input
     obs.obs_properties_add_text(
-        props, "fallback_window_title", "Fallback folder name: ", obs.OBS_TEXT_DEFAULT
+        props, PROPERTY_NAMES.FALLBACK_WINDOW_NAME, "Fallback folder name: ", obs.OBS_TEXT_DEFAULT
+    )
     )
 
     # Source selecting property for easier configuration for user
     # IDEA: Make the script remember on which scene was which source picked to ease the use of script!
     source_selector = obs.obs_properties_add_list(
         props,
-        "source_selector",
+        PROPERTY_NAMES.SOURCE_SELECTOR,
         "Monitored source: ",
         obs.OBS_COMBO_TYPE_LIST,
         obs.OBS_COMBO_FORMAT_STRING,
@@ -1047,7 +1061,7 @@ def script_properties():
     # Organization modes for user customization of sorting
     organization_mode = obs.obs_properties_add_list(
         props,
-        "organization_mode",
+        PROPERTY_NAMES.ORGANIZATION_MODE,
         "Organization mode: ",
         obs.OBS_COMBO_TYPE_LIST,
         obs.OBS_COMBO_FORMAT_STRING,
@@ -1056,7 +1070,7 @@ def script_properties():
 
     # Organize replay buffer checkmark
     organize_replay = obs.obs_properties_add_bool(
-        props, "enable_replay_organization", "Organize Replay Buffer recordings "
+        props, PROPERTY_NAMES.ENABLE_REPLAY_ORGANIZATION, "Organize Replay Buffer recordings "
     )
     obs.obs_property_set_long_description(
         organize_replay,
@@ -1065,7 +1079,7 @@ def script_properties():
 
     # Organize screenshots checkmark
     organize_screenshots = obs.obs_properties_add_bool(
-        props, "enable_screenshot_organization", "Organize screenshots "
+        props, PROPERTY_NAMES.ENABLE_SCREENSHOT_ORGANIZATION, "Organize screenshots "
     )
     obs.obs_property_set_long_description(
         organize_screenshots,
@@ -1074,7 +1088,7 @@ def script_properties():
 
     # Title checkmark
     title_as_prefix = obs.obs_properties_add_bool(
-        props, "title_as_prefix", "Add game name as a file prefix "
+        props, PROPERTY_NAMES.TITLE_AS_PREFIX, "Add game name as a file prefix "
     )
     obs.obs_property_set_long_description(
         title_as_prefix,
