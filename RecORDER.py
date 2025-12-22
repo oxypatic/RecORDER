@@ -1074,28 +1074,60 @@ def populate_organization_mode(organization_mode):
     # obs.obs_property_list_add_string(organization_mode, "Scene-based", "scene_based")
 
 
-def script_properties():
-    props = obs.obs_properties_create()
-
+def setup_customization(group_obj):
     # Default folder name text input
     obs.obs_properties_add_text(
-        props, PROPERTY_NAMES.FALLBACK_WINDOW_NAME, "Fallback folder name: ", obs.OBS_TEXT_DEFAULT
+        group_obj,
+        PROPERTY_NAMES.FALLBACK_WINDOW_NAME,
+        "Fallback folder name: ",
+        obs.OBS_TEXT_DEFAULT,
     )
 
+    # Replay folder customization option of user
     obs.obs_properties_add_text(
-        props, PROPERTY_NAMES.REPLAY_FOLDER_NAME, "Replay folder name: ", obs.OBS_TEXT_DEFAULT
+        group_obj, PROPERTY_NAMES.REPLAY_FOLDER_NAME, "Replay folder name: ", obs.OBS_TEXT_DEFAULT
     )
 
+    # Screenshot folder customization option of user
     obs.obs_properties_add_text(
-        props,
+        group_obj,
         PROPERTY_NAMES.SCREENSHOT_FOLDER_NAME,
         "Screenshot folder name: ",
         obs.OBS_TEXT_DEFAULT,
     )
 
+    # Organize replay buffer checkmark
+    organize_replay = obs.obs_properties_add_bool(
+        group_obj, PROPERTY_NAMES.ENABLE_REPLAY_ORGANIZATION, "Organize Replay Buffer recordings "
+    )
+    obs.obs_property_set_long_description(
+        organize_replay,
+        "Check the box, if you want to have replays organized into subfolders, uncheck to disable",
+    )
+
+    # Organize screenshots checkmark
+    organize_screenshots = obs.obs_properties_add_bool(
+        group_obj, PROPERTY_NAMES.ENABLE_SCREENSHOT_ORGANIZATION, "Organize screenshots "
+    )
+    obs.obs_property_set_long_description(
+        organize_screenshots,
+        "Check the box, if you want to have screenshots organized into subfolders, uncheck to disable",
+    )
+
+    # Title checkmark
+    title_as_prefix = obs.obs_properties_add_bool(
+        group_obj, PROPERTY_NAMES.TITLE_AS_PREFIX, "Add game name as a file prefix "
+    )
+    obs.obs_property_set_long_description(
+        title_as_prefix,
+        "Check the box, if you want to have title of hooked application appended as a prefix to the recording, else uncheck",
+    )
+
+
+def setup_core(group_obj):
     # Source selecting property for easier configuration for user
     source_selector = obs.obs_properties_add_list(
-        props,
+        group_obj,
         PROPERTY_NAMES.SOURCE_SELECTOR,
         "Monitored source: ",
         obs.OBS_COMBO_TYPE_LIST,
@@ -1105,7 +1137,7 @@ def script_properties():
 
     # Organization modes for user customization of sorting
     organization_mode = obs.obs_properties_add_list(
-        props,
+        group_obj,
         PROPERTY_NAMES.ORGANIZATION_MODE,
         "Organization mode: ",
         obs.OBS_COMBO_TYPE_LIST,
@@ -1113,42 +1145,50 @@ def script_properties():
     )
     populate_organization_mode(organization_mode)
 
-    # Organize replay buffer checkmark
-    organize_replay = obs.obs_properties_add_bool(
-        props, PROPERTY_NAMES.ENABLE_REPLAY_ORGANIZATION, "Organize Replay Buffer recordings "
-    )
-    obs.obs_property_set_long_description(
-        organize_replay,
-        "Check the box, if you want to have replays organized into subfolders, uncheck to disable",
-    )
 
-    # Organize screenshots checkmark
-    organize_screenshots = obs.obs_properties_add_bool(
-        props, PROPERTY_NAMES.ENABLE_SCREENSHOT_ORGANIZATION, "Organize screenshots "
-    )
-    obs.obs_property_set_long_description(
-        organize_screenshots,
-        "Check the box, if you want to have screenshots organized into subfolders, uncheck to disable",
-    )
-
-    # Title checkmark
-    title_as_prefix = obs.obs_properties_add_bool(
-        props, PROPERTY_NAMES.TITLE_AS_PREFIX, "Add game name as a file prefix "
-    )
-    obs.obs_property_set_long_description(
-        title_as_prefix,
-        "Check the box, if you want to have title of hooked application appended as a prefix to the recording, else uncheck",
-    )
-
+def setup_updates(group_obj):
     # Check for updates button
+    update_text = obs.obs_properties_add_text(group_obj, "version_info", "", obs.OBS_TEXT_INFO)
+
+    obs.obs_property_set_visible(update_text, False)
+    
+    
     check_updates = obs.obs_properties_add_button(
-        props, "check_updates_button", "Check for updates", check_updates_press
+        group_obj, "check_updates_button", "Check for updates", check_updates_press
     )
     obs.obs_property_set_modified_callback(check_updates, check_updates_callback)
 
-    update_text = obs.obs_properties_add_text(props, "version_info", "", obs.OBS_TEXT_INFO)
+    
 
-    obs.obs_property_set_visible(update_text, False)
+
+def script_properties():
+    props = obs.obs_properties_create()
+
+    customization_gr = obs.obs_properties_create()
+    core_gr = obs.obs_properties_create()
+    update_gr = obs.obs_properties_create()
+
+    obs.obs_properties_add_group(
+        props, "core_group", "Core settings:", obs.OBS_GROUP_NORMAL, core_gr
+    )
+    
+    # Create groups
+    obs.obs_properties_add_group(
+        props,
+        "available_customization_group",
+        "Available customizations:",
+        obs.OBS_GROUP_NORMAL,
+        customization_gr,
+    )
+
+    obs.obs_properties_add_group(
+        props, "update_group", "Update the script:", obs.OBS_GROUP_NORMAL, update_gr
+    )
+
+    # Setup groups
+    setup_customization(customization_gr)
+    setup_core(core_gr)
+    setup_updates(update_gr)
 
     return props
 
@@ -1163,9 +1203,5 @@ def script_description():
         </div>
         <div style="font-size: 12pt; text-align: left; margin-top: 20px; margin-bottom: 20px;">
         Created and maintained by: oxypatic
-        </div>
-        
-        <div style="font-weight: bold; font-size: 12pt; margin-top: 25px;">
-        Settings:
         </div>
     """
