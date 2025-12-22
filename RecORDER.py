@@ -248,8 +248,6 @@ class HookedHandler:
 
     def __establishHookConnection(self, source: object, source_uuid: str) -> None:
         """Connect the right source to "hooked" signal, so we get notifications whenever it hooks into a new game window."""
-        # TODO: Whip up a file creating class, that holds information about scene-to-selected_source info.
-        #       It should go to the level of scene collections, to make sure that the user always have settings he chose.
         self.state.source_uuid = source_uuid
 
         signal_handler = obs.obs_source_get_signal_handler(source)
@@ -1096,7 +1094,6 @@ def script_properties():
     )
 
     # Source selecting property for easier configuration for user
-    # IDEA: Make the script remember on which scene was which source picked to ease the use of script!
     source_selector = obs.obs_properties_add_list(
         props,
         PROPERTY_NAMES.SOURCE_SELECTOR,
