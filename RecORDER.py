@@ -417,7 +417,7 @@ class MediaFileOrganizer:
     ):
         self.title_as_prefix: bool = title_as_prefix
         self.organization_mode: str = organization_mode
-        self.replay_folder_name: str = (replay_folder_name,)
+        self.replay_folder_name: str = replay_folder_name
         self.screenshot_folder_name: str = screenshot_folder_name
         self.title_resolver: TitleResolver = title_resolver
 
@@ -1151,14 +1151,11 @@ def setup_updates(group_obj):
     update_text = obs.obs_properties_add_text(group_obj, "version_info", "", obs.OBS_TEXT_INFO)
 
     obs.obs_property_set_visible(update_text, False)
-    
-    
+
     check_updates = obs.obs_properties_add_button(
         group_obj, "check_updates_button", "Check for updates", check_updates_press
     )
     obs.obs_property_set_modified_callback(check_updates, check_updates_callback)
-
-    
 
 
 def script_properties():
@@ -1171,7 +1168,7 @@ def script_properties():
     obs.obs_properties_add_group(
         props, "core_group", "Core settings:", obs.OBS_GROUP_NORMAL, core_gr
     )
-    
+
     # Create groups
     obs.obs_properties_add_group(
         props,
