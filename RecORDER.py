@@ -5,6 +5,11 @@ import obspython as obs  # type: ignore
 # Author: oxypatic! (61553947+oxypatic@users.noreply.github.com)
 
 
+# ============================================================================
+# LITERALS CLASSES
+# ============================================================================
+
+
 class BASE_CONSTANTS:
     VERSION = "3.1"
     PYTHON_VERSION = sys.version_info
@@ -48,13 +53,20 @@ class AVAILABLE_ORGANIZATION_MODES:
     # SCENE_BASED = "scene_based"
 
 
-# Version check
+# ============================================================================
+# PYTHON VERSION CHECK
+# ============================================================================
+
 
 if BASE_CONSTANTS.PYTHON_VERSION < (3, 11):
     print("Python version < 3.11, correct behaviour is not guaranteed!")
 
 
-## DATA
+# ============================================================================
+# DATA CLASSES
+# ============================================================================
+
+
 class RecORDERProperties:
     """
     User-configurable settings that control the customizable script behaviour.
@@ -141,8 +153,6 @@ class ReplayState:
         """Clean up replay buffer state."""
         self.last_file_path = None
 
-
-## HANDLERS
 
 # ============================================================================
 # SCRIPT CONFIGURATION MANAGEMENT
@@ -859,7 +869,9 @@ class RecORDER:
 core: Optional[RecORDER] = None
 
 
-# Utility functions
+# ============================================================================
+# UTILITY FUNCTIONS
+# ============================================================================
 
 
 def log(message):
@@ -921,9 +933,6 @@ def check_updates_callback(props, prop, *args, **kwargs):
     return True
 
 
-# OBS FUNCTIONS
-
-
 def check_updates_press():
     print("Checking for updates...")
 
@@ -933,89 +942,6 @@ def frontend_event_callback(event):
 
     if core is not None:
         core.dispatchEvent(event)
-
-
-def script_load(settings):
-    global core
-    global config_manager
-
-    # Initialize the ConfigManager
-    config_path = get_config_path()
-    config_manager = ConfigManager(config_path)
-
-    # Initialization of events neccessary in organization
-    if core is not None:
-        obs.obs_frontend_remove_event_callback(frontend_event_callback)
-    obs.obs_frontend_add_event_callback(frontend_event_callback)
-
-
-def script_update(settings):
-    global core
-    global config_manager
-
-    # Recreate the RecORDER object to avoid issues
-    if core is not None:
-        core.shutdown()
-
-    # ConfigManager part
-    # Get scene_collection_name and scene_name
-    scene_collection_name = obs.obs_frontend_get_current_scene_collection()
-    current_scene = obs.obs_frontend_get_current_scene()
-    scene_name = obs.obs_source_get_name(current_scene)
-    obs.obs_source_release(current_scene)
-
-    # Get source_uuid and save it
-
-    selected_source_uuid = obs.obs_data_get_string(settings, "source_selector")
-
-    config_manager.saveSourceForScene(scene_collection_name, scene_name, selected_source_uuid)
-
-    # RecORDER part
-    properties = RecORDERProperties(
-        selected_source_uuid=selected_source_uuid,
-        selected_organization_mode=obs.obs_data_get_string(
-            settings, name=PROPERTY_NAMES.ORGANIZATION_MODE
-        ),
-        game_title_prefix=obs.obs_data_get_bool(settings, PROPERTY_NAMES.TITLE_AS_PREFIX),
-        enable_replay_organization=obs.obs_data_get_bool(
-            settings, PROPERTY_NAMES.ENABLE_REPLAY_ORGANIZATION
-        ),
-        enable_screenshot_organization=obs.obs_data_get_bool(
-            settings, PROPERTY_NAMES.ENABLE_SCREENSHOT_ORGANIZATION
-        ),
-        fallback_window_title=obs.obs_data_get_string(
-            settings, PROPERTY_NAMES.FALLBACK_WINDOW_NAME
-        ),
-        replay_folder_name=obs.obs_data_get_string(settings, PROPERTY_NAMES.REPLAY_FOLDER_NAME),
-        screenshot_folder_name=obs.obs_data_get_string(
-            settings, PROPERTY_NAMES.SCREENSHOT_FOLDER_NAME
-        ),
-    )
-
-    core = RecORDER(properties, config_manager)
-
-    print("[RecORDER] Configuration updated and orchestrator initialized!")
-
-
-def script_defaults(settings):
-    obs.obs_data_set_default_string(settings, PROPERTY_NAMES.FALLBACK_WINDOW_NAME, "Any Recording")
-    obs.obs_data_set_default_string(settings, PROPERTY_NAMES.REPLAY_FOLDER_NAME, "replay")
-    obs.obs_data_set_default_string(settings, PROPERTY_NAMES.SCREENSHOT_FOLDER_NAME, "screenshot")
-    obs.obs_data_set_default_string(settings, PROPERTY_NAMES.ORGANIZATION_MODE, "basic")
-    obs.obs_data_set_default_bool(settings, PROPERTY_NAMES.TITLE_AS_PREFIX, False)
-    obs.obs_data_set_default_bool(settings, PROPERTY_NAMES.ENABLE_REPLAY_ORGANIZATION, True)
-    obs.obs_data_set_default_bool(settings, PROPERTY_NAMES.ENABLE_SCREENSHOT_ORGANIZATION, True)
-
-
-def script_unload():
-    global core
-
-    if core is not None:
-        core.shutdown()
-        core = None
-
-    obs.obs_frontend_remove_event_callback(frontend_event_callback)
-    print("[RecORDER] Script unloaded sucessfully!")
 
 
 def has_hooked_event(source) -> bool:
@@ -1029,6 +955,11 @@ def has_hooked_event(source) -> bool:
 def visible_in_preview(source) -> bool:
     """Check if source is visible in the preview"""
     return obs.obs_source_showing(source)
+
+
+# ============================================================================
+# METHODS TO POPULATE PROPERTY LISTS
+# ============================================================================
 
 
 def populate_source_selector(source_selector):
@@ -1072,6 +1003,11 @@ def populate_organization_mode(organization_mode):
         organization_mode, "Group by Date", AVAILABLE_ORGANIZATION_MODES.DATE_BASED
     )
     # obs.obs_property_list_add_string(organization_mode, "Scene-based", "scene_based")
+
+
+# ============================================================================
+# SETUPS FOR PROPERTIES GROUPS
+# ============================================================================
 
 
 def setup_customization(group_obj):
@@ -1156,6 +1092,94 @@ def setup_updates(group_obj):
         group_obj, "check_updates_button", "Check for updates", check_updates_press
     )
     obs.obs_property_set_modified_callback(check_updates, check_updates_callback)
+
+
+# ============================================================================
+# OBS FUNCTIONS
+# ============================================================================
+
+
+def script_load(settings):
+    global core
+    global config_manager
+
+    # Initialize the ConfigManager
+    config_path = get_config_path()
+    config_manager = ConfigManager(config_path)
+
+    # Initialization of events neccessary in organization
+    if core is not None:
+        obs.obs_frontend_remove_event_callback(frontend_event_callback)
+    obs.obs_frontend_add_event_callback(frontend_event_callback)
+
+
+def script_update(settings):
+    global core
+    global config_manager
+
+    # Recreate the RecORDER object to avoid issues
+    if core is not None:
+        core.shutdown()
+
+    # ConfigManager part
+    # Get scene_collection_name and scene_name
+    scene_collection_name = obs.obs_frontend_get_current_scene_collection()
+    current_scene = obs.obs_frontend_get_current_scene()
+    scene_name = obs.obs_source_get_name(current_scene)
+    obs.obs_source_release(current_scene)
+
+    # Get source_uuid and save it
+
+    selected_source_uuid = obs.obs_data_get_string(settings, "source_selector")
+
+    config_manager.saveSourceForScene(scene_collection_name, scene_name, selected_source_uuid)
+
+    # RecORDER part
+    properties = RecORDERProperties(
+        selected_source_uuid=selected_source_uuid,
+        selected_organization_mode=obs.obs_data_get_string(
+            settings, name=PROPERTY_NAMES.ORGANIZATION_MODE
+        ),
+        game_title_prefix=obs.obs_data_get_bool(settings, PROPERTY_NAMES.TITLE_AS_PREFIX),
+        enable_replay_organization=obs.obs_data_get_bool(
+            settings, PROPERTY_NAMES.ENABLE_REPLAY_ORGANIZATION
+        ),
+        enable_screenshot_organization=obs.obs_data_get_bool(
+            settings, PROPERTY_NAMES.ENABLE_SCREENSHOT_ORGANIZATION
+        ),
+        fallback_window_title=obs.obs_data_get_string(
+            settings, PROPERTY_NAMES.FALLBACK_WINDOW_NAME
+        ),
+        replay_folder_name=obs.obs_data_get_string(settings, PROPERTY_NAMES.REPLAY_FOLDER_NAME),
+        screenshot_folder_name=obs.obs_data_get_string(
+            settings, PROPERTY_NAMES.SCREENSHOT_FOLDER_NAME
+        ),
+    )
+
+    core = RecORDER(properties, config_manager)
+
+    print("[RecORDER] Configuration updated and orchestrator initialized!")
+
+
+def script_defaults(settings):
+    obs.obs_data_set_default_string(settings, PROPERTY_NAMES.FALLBACK_WINDOW_NAME, "Any Recording")
+    obs.obs_data_set_default_string(settings, PROPERTY_NAMES.REPLAY_FOLDER_NAME, "replay")
+    obs.obs_data_set_default_string(settings, PROPERTY_NAMES.SCREENSHOT_FOLDER_NAME, "screenshot")
+    obs.obs_data_set_default_string(settings, PROPERTY_NAMES.ORGANIZATION_MODE, "basic")
+    obs.obs_data_set_default_bool(settings, PROPERTY_NAMES.TITLE_AS_PREFIX, False)
+    obs.obs_data_set_default_bool(settings, PROPERTY_NAMES.ENABLE_REPLAY_ORGANIZATION, True)
+    obs.obs_data_set_default_bool(settings, PROPERTY_NAMES.ENABLE_SCREENSHOT_ORGANIZATION, True)
+
+
+def script_unload():
+    global core
+
+    if core is not None:
+        core.shutdown()
+        core = None
+
+    obs.obs_frontend_remove_event_callback(frontend_event_callback)
+    print("[RecORDER] Script unloaded sucessfully!")
 
 
 def script_properties():
