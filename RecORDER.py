@@ -13,6 +13,8 @@ class BASE_CONSTANTS:
 
 class PROPERTY_NAMES:
     FALLBACK_WINDOW_NAME = "fallback_window_title"
+    REPLAY_FOLDER_NAME = "replay_folder_name"
+    SCREENSHOT_FOLDER_NAME = "screenshot_folder_name"
     ORGANIZATION_MODE = "organization_mode"
     TITLE_AS_PREFIX = "title_as_prefix"
     ENABLE_REPLAY_ORGANIZATION = "enable_replay_organization"
@@ -65,10 +67,15 @@ class RecORDERProperties:
         game_title_prefix: bool,
         enable_replay_organization: bool,
         enable_screenshot_organization: bool,
+        replay_folder_name: str,
+        screenshot_folder_name: str,
+        fallback_window_title: str,
         selected_source_uuid: str = None,
         selected_organization_mode: str = "basic",
     ):
         self.fallback_window_title: str = fallback_window_title
+        self.replay_folder_name: str = replay_folder_name
+        self.screenshot_folder_name: str = screenshot_folder_name
         self.selected_source_uuid: str = selected_source_uuid
         self.selected_organization_mode: str = selected_organization_mode
 
@@ -403,10 +410,14 @@ class MediaFileOrganizer:
         self,
         title_resolver: TitleResolver,
         organization_mode: str = AVAILABLE_ORGANIZATION_MODES.BASIC,
+        replay_folder_name: str = "replay",
+        screenshot_folder_name: str = "screenshot",
         title_as_prefix: bool = False,
     ):
         self.title_as_prefix: bool = title_as_prefix
         self.organization_mode: str = organization_mode
+        self.replay_folder_name: str = (replay_folder_name,)
+        self.screenshot_folder_name: str = screenshot_folder_name
         self.title_resolver: TitleResolver = title_resolver
 
     def processRecording(self, file_path: str) -> None:
@@ -428,7 +439,12 @@ class MediaFileOrganizer:
         # print(f"[MediaOrganizer] Processing replay: {file_path}")
         # print(f"[MediaOrganizer] Window title: {game_title}")
 
-        self.__organizeFileAsync(file_path, game_title, media_type=SUPPORTED_MEDIAFILE_TYPES.REPLAY)
+        self.__organizeFileAsync(
+            file_path,
+            game_title,
+            media_type=SUPPORTED_MEDIAFILE_TYPES.REPLAY,
+            folder_name=self.replay_folder_name,
+        )
 
     def processScreenshot(self, file_path: str) -> None:
         """Process a screenshot file. Works in similar way to processRecording()"""
@@ -438,10 +454,15 @@ class MediaFileOrganizer:
         # print(f"[MediaOrganizer] Window title: {game_title}")
 
         self.__organizeFileAsync(
-            file_path, game_title, media_type=SUPPORTED_MEDIAFILE_TYPES.SCREENSHOT
+            file_path,
+            game_title,
+            media_type=SUPPORTED_MEDIAFILE_TYPES.SCREENSHOT,
+            folder_name=self.screenshot_folder_name,
         )
 
-    def __organizeFileAsync(self, file_path: str, game_title: str, media_type: str) -> None:
+    def __organizeFileAsync(
+        self, file_path: str, game_title: str, media_type: str, folder_name: str = None
+    ) -> None:
         """
         Start a background thread to handle file operations.
 
@@ -450,19 +471,23 @@ class MediaFileOrganizer:
         import threading
 
         thread = threading.Thread(
-            target=self.__moveFileWorker, args=(file_path, game_title, media_type), daemon=True
+            target=self.__moveFileWorker,
+            args=(file_path, game_title, media_type, folder_name),
+            daemon=True,
         )
 
         thread.start()
 
-    def __moveFileWorker(self, file_path: str, game_title: str, media_type: str) -> None:
+    def __moveFileWorker(
+        self, file_path: str, game_title: str, media_type: str, folder_name: str
+    ) -> None:
         """The actual worker that runs in a background thread.
         We use asyncio to handle the file operations asynchronously and allows for retries and proper error handling"""
         import asyncio
 
         try:
             # Create a new path based on game_title and media_type
-            target_path = self.__calculateNewPath(file_path, game_title, media_type)
+            target_path = self.__calculateNewPath(file_path, game_title, media_type, folder_name)
 
             # Run the async move operation
             asyncio.run(self.__move(file_path, target_path))
@@ -472,7 +497,9 @@ class MediaFileOrganizer:
         except Exception as e:
             print(f"[MediaOrganizer] Failed to move file: {e}")
 
-    def __calculateNewPath(self, file_path: str, game_title: str, media_type: str) -> None:
+    def __calculateNewPath(
+        self, file_path: str, game_title: str, media_type: str, folder_name: str
+    ) -> None:
         """Determine new path for the file based on game title and media type."""
         import os
         from datetime import datetime
@@ -491,12 +518,12 @@ class MediaFileOrganizer:
             if media_type == SUPPORTED_MEDIAFILE_TYPES.RECORDING:
                 new_directory = os.path.join(directory, game_title)
             else:
-                new_directory = os.path.join(directory, game_title, media_type)
+                new_directory = os.path.join(directory, game_title, folder_name)
         elif self.organization_mode == AVAILABLE_ORGANIZATION_MODES.DATE_BASED:
             if media_type == SUPPORTED_MEDIAFILE_TYPES.RECORDING:
                 new_directory = os.path.join(directory, game_title, creation_date)
             else:
-                new_directory = os.path.join(directory, game_title, media_type, creation_date)
+                new_directory = os.path.join(directory, game_title, folder_name, creation_date)
 
         return os.path.join(new_directory, filename)
 
@@ -666,6 +693,8 @@ class RecORDER:
         self.organizer: MediaFileOrganizer = MediaFileOrganizer(
             title_as_prefix=self.__properties.game_title_prefix,
             organization_mode=self.__properties.selected_organization_mode,
+            replay_folder_name=self.__properties.replay_folder_name,
+            screenshot_folder_name=self.__properties.screenshot_folder_name,
             title_resolver=self.title_resolver,
         )
         self.recording_manager: RecordingManager = RecordingManager(
@@ -956,6 +985,10 @@ def script_update(settings):
         fallback_window_title=obs.obs_data_get_string(
             settings, PROPERTY_NAMES.FALLBACK_WINDOW_NAME
         ),
+        replay_folder_name=obs.obs_data_get_string(settings, PROPERTY_NAMES.REPLAY_FOLDER_NAME),
+        screenshot_folder_name=obs.obs_data_get_string(
+            settings, PROPERTY_NAMES.SCREENSHOT_FOLDER_NAME
+        ),
     )
 
     core = RecORDER(properties, config_manager)
@@ -965,6 +998,8 @@ def script_update(settings):
 
 def script_defaults(settings):
     obs.obs_data_set_default_string(settings, PROPERTY_NAMES.FALLBACK_WINDOW_NAME, "Any Recording")
+    obs.obs_data_set_default_string(settings, PROPERTY_NAMES.REPLAY_FOLDER_NAME, "replay")
+    obs.obs_data_set_default_string(settings, PROPERTY_NAMES.SCREENSHOT_FOLDER_NAME, "screenshot")
     obs.obs_data_set_default_string(settings, PROPERTY_NAMES.ORGANIZATION_MODE, "basic")
     obs.obs_data_set_default_bool(settings, PROPERTY_NAMES.TITLE_AS_PREFIX, False)
     obs.obs_data_set_default_bool(settings, PROPERTY_NAMES.ENABLE_REPLAY_ORGANIZATION, True)
@@ -1045,6 +1080,16 @@ def script_properties():
     obs.obs_properties_add_text(
         props, PROPERTY_NAMES.FALLBACK_WINDOW_NAME, "Fallback folder name: ", obs.OBS_TEXT_DEFAULT
     )
+
+    obs.obs_properties_add_text(
+        props, PROPERTY_NAMES.REPLAY_FOLDER_NAME, "Replay folder name: ", obs.OBS_TEXT_DEFAULT
+    )
+
+    obs.obs_properties_add_text(
+        props,
+        PROPERTY_NAMES.SCREENSHOT_FOLDER_NAME,
+        "Screenshot folder name: ",
+        obs.OBS_TEXT_DEFAULT,
     )
 
     # Source selecting property for easier configuration for user
