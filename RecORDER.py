@@ -160,8 +160,11 @@ class ConfigManager:
     def __loadConfig(self) -> dict:
         """Load script configuration from JSON file, return empty dictionary if it doesn't exist."""
         if self.os.path.exists(self.__config_path):
-            with open(self.__config_path, "r") as config_file:
-                return self.json.load(config_file)
+            try:
+                with open(self.__config_path, "r") as config_file:
+                    return self.json.load(config_file)
+            except Exception as e:
+                print(f"[Config Manager] There was an error while opening the file: {e}")
         return dict()
 
     def __saveConfg(self) -> None:
