@@ -835,7 +835,7 @@ class RecORDER:
             obs.obs_source_release(current_scene)
 
             # Look up saved source UUID from config
-            saved_source_uuid = self.__config_manager.getSourceForScene(
+            saved_source_uuid = self.config_manager.getSourceForScene(
                 scene_collection_name, scene_name
             )
 
@@ -955,6 +955,24 @@ def has_hooked_event(source) -> bool:
 def visible_in_preview(source) -> bool:
     """Check if source is visible in the preview"""
     return obs.obs_source_showing(source)
+
+
+def save_config(settings, source_uuid: str) -> None:
+    # Get scene_collection_name and scene_name
+    try:
+        scene_collection_name = obs.obs_frontend_get_current_scene_collection()
+        current_scene = obs.obs_frontend_get_current_scene()
+        scene_name = obs.obs_source_get_name(current_scene)
+        
+    except Exception as e:
+        print(f"[save_config] Error while fetching data: {e}")
+        return
+        
+    finally:
+        obs.obs_source_release(current_scene)
+
+    if scene_collection_name and scene_name and source_uuid:
+        config_manager.saveSourceForScene(scene_collection_name, scene_name, source_uuid)
 
 
 # ============================================================================
@@ -1121,18 +1139,10 @@ def script_update(settings):
     if core is not None:
         core.shutdown()
 
-    # ConfigManager part
-    # Get scene_collection_name and scene_name
-    scene_collection_name = obs.obs_frontend_get_current_scene_collection()
-    current_scene = obs.obs_frontend_get_current_scene()
-    scene_name = obs.obs_source_get_name(current_scene)
-    obs.obs_source_release(current_scene)
-
-    # Get source_uuid and save it
-
     selected_source_uuid = obs.obs_data_get_string(settings, "source_selector")
-
-    config_manager.saveSourceForScene(scene_collection_name, scene_name, selected_source_uuid)
+    
+    # ConfigManager part
+    save_config(settings, selected_source_uuid)
 
     # RecORDER part
     properties = RecORDERProperties(
