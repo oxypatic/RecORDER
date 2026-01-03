@@ -11,7 +11,7 @@ import obspython as obs  # type: ignore
 
 
 class BASE_CONSTANTS:
-    VERSION = "3.1"
+    VERSION = "3.1.1"
     PYTHON_VERSION = sys.version_info
     TIME_TO_WAIT = 0.5
 
