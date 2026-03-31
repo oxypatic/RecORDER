@@ -3,7 +3,7 @@
 
 <div align="right">
    <picture> 
-      <img src="https://img.shields.io/badge/version-2.1-11">
+      <img src="https://img.shields.io/badge/version-3.1.1-11">
    </picture>
    <picture> 
       <img src="https://img.shields.io/badge/Python-3776AB?logo=python&logoColor=fff">
